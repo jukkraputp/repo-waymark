@@ -32,4 +32,4 @@ Use a neutral H1. Put `<!-- wiki-status v1 -->` directly below it, allowing blan
 
 The generated template includes any required project-specific fields. Keep decision, implementation, merge, test, and publication evidence tied to their actual revisions. Use `unknown` when a status or test revision has no evidence. For historical text that can mislead, add a dated banner such as `> **Superseded YYYY-MM-DD:** old claim → replacement (see Current status).`
 
-After editing the source, run `status.py sync` on the page to regenerate the category index line and any existing front-matter `description`. Sync leaves `As of` alone. Update that date only after verifying the status claims.
+After editing the source, run `status.py sync` on the page to regenerate the category index line and any existing front-matter `description`. The description is written on one line as a YAML scalar, double-quoted when `About` would not read back as plain YAML (for example `Cache: invalidation`); an existing multi-line or invalid description is replaced as a whole. Sync leaves `As of` alone. Update that date only after verifying the status claims.

@@ -47,3 +47,50 @@ class CrlfSync(unittest.TestCase):
             self.assertTrue(path.read_bytes().endswith(unrelated), path.name)
         self.assertTrue(paths[1].read_bytes().startswith(b"---\r\ndescription: A demo.\n---\r\n"))
         self.assertEqual(status.check(d), [])
+
+
+class DescriptionYaml(unittest.TestCase):
+    def setUp(self):
+        self.root = fixture()
+        self.addCleanup(shutil.rmtree, self.root)
+        self.page = Path(self.root) / WIKI_DIR / "demo.md"
+        self.assertEqual(status.sync(self.root, []), 0)
+
+    def write(self, front_matter, about="A demo."):
+        text = wl.read(self.page).replace("- **About:** A demo.", "- **About:** " + about)
+        self.page.write_text("---\n" + front_matter + "---\n\n" + text, encoding="utf-8")
+
+    def front_matter(self):
+        return wl.read(self.page).split("---\n")[1]
+
+    def test_sync_quotes_description_that_is_not_plain_yaml(self):
+        about = 'Cache: invalidation and "quoted" \\ paths'
+        self.write("title: Demo\ndescription: Old\n", about)
+        self.assertEqual(status.sync(self.root, []), 0)
+        self.assertEqual(self.front_matter(),
+                         'title: Demo\ndescription: "Cache: invalidation and \\"quoted\\" \\\\ paths"\n')
+        self.assertEqual(status.read_yaml_scalar(self.front_matter().split("description:")[1]), about)
+        self.assertEqual(status.check(self.root), [])
+
+    def test_check_reports_unquoted_invalid_description(self):
+        self.write("description: Cache: invalidation\n", "Cache: invalidation")
+        self.assertTrue(any("front-matter description" in p for p in status.check(self.root)))
+        self.assertEqual(status.sync(self.root, []), 0)
+        self.assertEqual(self.front_matter(), 'description: "Cache: invalidation"\n')
+        self.assertEqual(status.check(self.root), [])
+
+    def test_valid_plain_and_quoted_descriptions_stay_in_sync(self):
+        for line in ("description: A demo.", 'description: "A demo."', "description: 'A demo.'"):
+            with self.subTest(line=line):
+                self.write(line + "\n")
+                before = wl.read_raw(self.page)
+                self.assertEqual(status.check(self.root), [])
+                self.assertEqual(status.sync(self.root, []), 0)
+                self.assertEqual(wl.read_raw(self.page), before)
+
+    def test_multiline_description_is_replaced_as_a_unit(self):
+        self.write("description: >-\n  An old\n\n  folded text\ntitle: Demo\n")
+        self.assertTrue(any("front-matter description" in p for p in status.check(self.root)))
+        self.assertEqual(status.sync(self.root, []), 0)
+        self.assertEqual(self.front_matter(), "description: A demo.\ntitle: Demo\n")
+        self.assertEqual(status.check(self.root), [])

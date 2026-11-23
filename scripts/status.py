@@ -12,11 +12,127 @@ and is idempotent. `check` exits 1 on any difference and prints a unified diff.
 """
 import difflib
 import os
+import re
 import shlex
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import wikilib as wl  # noqa: E402
+
+
+# A plain YAML scalar must not start with an indicator, contain `: ` or ` #`, end with `:`, carry
+# surrounding whitespace or control characters, or read as a non-string (null, bool, number).
+_YAML_INDICATOR_START = re.compile(r"^(?:[,\[\]{}#&*!|>'\"%@`]|[-?:](?:\s|$))")
+_YAML_NON_STRING = re.compile(
+    r"^(?:~|null|Null|NULL|true|True|TRUE|false|False|FALSE|yes|Yes|YES|no|No|NO|on|On|ON|off|Off|OFF"
+    r"|[-+]?(?:0|[1-9][0-9_]*)|0o?[0-7_]+|0x[0-9a-fA-F_]+|0b[01_]+"
+    r"|[-+]?(?:\.[0-9]+|[0-9][0-9_]*(?:\.[0-9_]*)?)(?:[eE][-+]?[0-9]+)?"
+    r"|[-+]?\.(?:inf|Inf|INF)|\.(?:nan|NaN|NAN))$")
+_YAML_ESCAPES = {"0": "\0", "a": "\a", "b": "\b", "t": "\t", "\t": "\t", "n": "\n", "v": "\v",
+                 "f": "\f", "r": "\r", "e": "\x1b", " ": " ", '"': '"', "/": "/", "\\": "\\",
+                 "N": "\x85", "_": "\xa0", "L": "\u2028", "P": "\u2029"}
+_YAML_HEX = {"x": 2, "u": 4, "U": 8}
+
+
+def plain_scalar_ok(value):
+    """Whether `value` can be written as a plain YAML scalar that reads back as the same string."""
+    return bool(value) and value == value.strip() and not (
+        _YAML_INDICATOR_START.match(value) or ": " in value or " #" in value or value.endswith(":")
+        or any(ord(c) < 32 or ord(c) == 127 for c in value) or _YAML_NON_STRING.match(value))
+
+
+def yaml_scalar(value):
+    """`value` as a single-line YAML scalar: plain when safe, otherwise double-quoted."""
+    if plain_scalar_ok(value):
+        return value
+    out = []
+    for c in value:
+        if c in ('"', "\\"):
+            out.append("\\" + c)
+        elif c == "\t":
+            out.append("\\t")
+        elif c == "\n":
+            out.append("\\n")
+        elif ord(c) < 32 or ord(c) == 127:
+            out.append("\\x%02x" % ord(c))
+        else:
+            out.append(c)
+    return '"' + "".join(out) + '"'
+
+
+def read_yaml_scalar(text):
+    """Decode a single-line YAML scalar (plain, single- or double-quoted); None when invalid or
+    not one this tool would accept as a description."""
+    text = text.strip()
+    if text.startswith('"'):
+        out, i = [], 1
+        while i < len(text):
+            c = text[i]
+            if c == '"':
+                return "".join(out) if i == len(text) - 1 else None
+            if c == "\\":
+                i += 1
+                if i >= len(text):
+                    return None
+                e = text[i]
+                if e in _YAML_HEX:
+                    digits = text[i + 1:i + 1 + _YAML_HEX[e]]
+                    if len(digits) != _YAML_HEX[e] or not re.fullmatch(r"[0-9a-fA-F]+", digits):
+                        return None
+                    out.append(chr(int(digits, 16)))
+                    i += _YAML_HEX[e]
+                elif e in _YAML_ESCAPES:
+                    out.append(_YAML_ESCAPES[e])
+                else:
+                    return None
+            else:
+                out.append(c)
+            i += 1
+        return None
+    if text.startswith("'"):
+        if len(text) < 2 or not text.endswith("'"):
+            return None
+        body = text[1:-1]
+        if "'" in body.replace("''", ""):
+            return None
+        return body.replace("''", "'")
+    return text if plain_scalar_ok(text) else None
+
+
+def description_span(page):
+    """(first, end) line indexes of the front-matter description, continuation lines included."""
+    first = page.fm_desc_idx
+    end = first + 1
+    i = end
+    while i < len(page.lines):
+        line = page.lines[i]
+        if line.strip() == "---":
+            break
+        if line[:1] in (" ", "\t"):
+            i += 1
+            end = i
+        elif not line.strip():
+            i += 1
+        else:
+            break
+    return first, end
+
+
+def description_in_sync(page, about):
+    """A single-line description whose YAML value equals About. A multi-line or invalid value
+    (for example an unquoted `Cache: invalidation`) is drift that sync rewrites."""
+    first, end = description_span(page)
+    if end - first != 1:
+        return False
+    line = page.lines[first]
+    if not line.startswith("description:"):
+        return False
+    value = line[len("description:"):]
+    if value and value[0] not in " \t":
+        return False
+    if not value.strip():
+        return about == ""   # an empty value written by earlier versions still means an empty About
+    return read_yaml_scalar(value) == about
 
 
 def expected_for(root, page):
@@ -44,8 +160,9 @@ def expected_for(root, page):
                             "`%s`.\n%s" % (page.name, os.path.basename(loc[0]), loc[1], sync_command, diff))
     desc = None
     if page.fm_desc_idx is not None:
-        desc = "description: " + (page.get("About") or "")
-        if page.lines[page.fm_desc_idx] != desc:
+        about = page.get("About") or ""
+        desc = "description: " + yaml_scalar(about)
+        if not description_in_sync(page, about):
             problems.append("%s: front-matter description differs from About. Run "
                             "`%s`." % (page.name, sync_command))
     return problems, loc, line, desc
@@ -58,10 +175,12 @@ def check(root, pages=None):
     return problems
 
 
-def replace_line(path, index, replacement):
+def replace_line(path, index, replacement, end=None):
+    """Replace lines[index:end] (one line by default) with a single replacement line."""
     with open(path, encoding="utf-8", errors="surrogateescape", newline="") as stream:
         lines = stream.read().split("\n")
-    lines[index] = replacement + ("\r" if lines[index].endswith("\r") else "")
+    end = index + 1 if end is None else end
+    lines[index:end] = [replacement + ("\r" if lines[index].endswith("\r") else "")]
     wl.write_text(path, "\n".join(lines))
 
 
@@ -86,8 +205,9 @@ def sync(root, names, cfg=None):
         if cur != line:
             replace_line(path, lineno - 1, line)
             changed.append("index line %s:%d" % (os.path.basename(path), lineno))
-        if desc is not None and pg.lines[pg.fm_desc_idx] != desc:
-            replace_line(pg.path, pg.fm_desc_idx, desc)
+        if desc is not None and not description_in_sync(pg, pg.get("About") or ""):
+            first, end = description_span(pg)
+            replace_line(pg.path, first, desc, end)
             changed.append("front-matter description")
         print("%s: %s" % (pg.name, ", ".join(changed) if changed else "already in sync"))
     return rc

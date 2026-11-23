@@ -181,6 +181,39 @@ def check_status_page(root, pg, git, findings, today):
                         pass
     # S10 / W6 (no git needed for working-tree paths) --------------------
     check_status_paths(root, pg, git, findings)
+    # Format checks that need no git (also run with --no-git) ------------
+    merged = pg.get("Merged") or ""
+    mtok = wl.first_token(merged)
+    refs = wl.block_refs(merged)
+    label = pg.config["merged_label"]
+    if mtok in ("no", "integration", label, "partial") and not refs:
+        findings.err("S6", n, "Merged: %s must name the target ref(s) in backticks" % mtok)
+    if tag_match:
+        if not ISO.search(pub):
+            findings.err("S7", n, "Published %r needs a date" % tag_match.group(1))
+        if not EVIDENCE.search(pub[tag_match.end():]):
+            findings.err("S7", n, "Published %r needs an evidence pointer" % tag_match.group(1))
+    ttok = wl.first_token(pg.get("Tested") or "")
+    kids = pg.children("Tested")
+    if ttok in ("partial", "passed", "failed") and not kids:
+        findings.err("S8", n, "Tested: %s needs at least one dated child line" % ttok)
+    tested_revisions = []
+    for c in kids:
+        if not ISO.match(c):
+            findings.err("S8", n, "Tested line must start with a date: %r" % c[:70])
+        if re.search(r"\b(void|stale)\b", c, re.I):
+            findings.warn("W2", n, "Tested line %r marks its result void or stale for the current tip" % c[:60])
+        mm = TESTED_AT.search(c)
+        if not mm:
+            findings.err("S8", n, "Tested line lacks an `@ <revision or label>`: %r" % c[:70])
+        elif mm.group(1).startswith("`"):
+            tested_revisions.append(mm.group(1).strip("`"))
+    canon = pg.get("Canonical copy")
+    canon_toks = []
+    if canon and canon.strip().lower() not in ("none", "n/a"):
+        canon_toks = [t for t in wl.backticked(canon) if ":" in t]
+        if not canon_toks:
+            findings.err("S9", n, "Canonical copy must name `<ref>:<path>` in backticks")
     if not git:
         return
     # S5 ----------------------------------------------------------------
@@ -190,9 +223,6 @@ def check_status_page(root, pg, git, findings, today):
             findings.err("S5", n, "SHA `%s` does not exist in git" % sha)
     # S6 / W3 -----------------------------------------------------------
     code_shas = [s for s in wl.block_shas(pg.get("Code") or "") if git.commit(s)]
-    merged = pg.get("Merged") or ""
-    mtok = wl.first_token(merged)
-    refs = wl.block_refs(merged)
     main_ref = pg.config["main_ref"]
     main_names = {main_ref, "refs/heads/" + main_ref, "refs/remotes/" + main_ref}
     for prefix in ("refs/heads/", "refs/remotes/"):
@@ -205,9 +235,6 @@ def check_status_page(root, pg, git, findings, today):
             findings.err("S6", n, "Merged names ref `%s` which does not resolve" % r)
     live = [r for r in refs if resolved.get(r)]
     main_named = any(r in main_names for r in live)
-    label = pg.config["merged_label"]
-    if mtok in ("no", "integration", label, "partial") and not refs:
-        findings.err("S6", n, "Merged: %s must name the target ref(s) in backticks" % mtok)
     if mtok in (label, "integration") and not code_shas:
         findings.err("S6", n, "Merged: %s needs at least one backticked SHA in Code" % mtok)
     if mtok == label and code_shas:
@@ -245,60 +272,37 @@ def check_status_page(root, pg, git, findings, today):
                 peeled = git.commit("refs/tags/" + tag)
                 if not peeled or not peeled.startswith(mm.group(1)):
                     findings.err("S7", n, "tag `%s` peels to %s, not %s" % (tag, (peeled or "?")[:9], mm.group(1)))
-        if not ISO.search(pub):
-            findings.err("S7", n, "Published %r needs a date" % tag)
-        if not EVIDENCE.search(pub[tag_match.end():]):
-            findings.err("S7", n, "Published %r needs an evidence pointer" % tag)
     # S8 / W2 -----------------------------------------------------------
-    ttok = wl.first_token(pg.get("Tested") or "")
-    kids = pg.children("Tested")
-    if ttok in ("partial", "passed", "failed") and not kids:
-        findings.err("S8", n, "Tested: %s needs at least one dated child line" % ttok)
     tested_shas = []
-    for c in kids:
-        if not ISO.match(c):
-            findings.err("S8", n, "Tested line must start with a date: %r" % c[:70])
-        mm = TESTED_AT.search(c)
-        if not mm:
-            findings.err("S8", n, "Tested line lacks an `@ <revision or label>`: %r" % c[:70])
-            continue
-        tok = mm.group(1).strip("`")
-        if mm.group(1).startswith("`"):
-            if wl.is_sha(tok):
-                if not git.commit(tok):
-                    findings.err("S8", n, "Tested SHA `%s` does not exist" % tok)
-                else:
-                    tested_shas.append(tok)
-            elif tok not in git.tags():
-                findings.err("S8", n, "Tested revision `%s` is neither a SHA nor an existing tag" % tok)
+    for tok in tested_revisions:
+        if wl.is_sha(tok):
+            if not git.commit(tok):
+                findings.err("S8", n, "Tested SHA `%s` does not exist" % tok)
             else:
-                tested_shas.append("refs/tags/" + tok)
-        if re.search(r"\b(void|stale)\b", c, re.I):
-            findings.warn("W2", n, "Tested line %r marks its result void or stale for the current tip" % c[:60])
+                tested_shas.append(tok)
+        elif tok not in git.tags():
+            findings.err("S8", n, "Tested revision `%s` is neither a SHA nor an existing tag" % tok)
+        else:
+            tested_shas.append("refs/tags/" + tok)
     for t in tested_shas:
         if any(s != t and git.is_ancestor(t, s) and not git.is_ancestor(s, t) for s in code_shas):
             findings.warn("W2", n, "Tested revision %s predates a newer Code commit; that result may be void for the tip"
                    % t.replace("refs/tags/", ""))
     # S9 / W4 -----------------------------------------------------------
-    canon = pg.get("Canonical copy")
-    if canon and canon.strip().lower() not in ("none", "n/a"):
-        toks = [t for t in wl.backticked(canon) if ":" in t]
-        if not toks:
-            findings.err("S9", n, "Canonical copy must name `<ref>:<path>` in backticks")
+    if canon_toks:
+        ref, _, path = canon_toks[0].partition(":")
+        tip = git.commit(ref)
+        if not tip:
+            findings.err("S9", n, "Canonical ref `%s` does not resolve" % ref)
+        elif not git.resolve("%s:%s" % (tip, git.project_path(path))):
+            findings.err("S9", n, "Canonical copy %s:%s does not exist" % (ref, path))
         else:
-            ref, _, path = toks[0].partition(":")
-            tip = git.commit(ref)
-            if not tip:
-                findings.err("S9", n, "Canonical ref `%s` does not resolve" % ref)
-            elif not git.resolve("%s:%s" % (tip, git.project_path(path))):
-                findings.err("S9", n, "Canonical copy %s:%s does not exist" % (ref, path))
-            else:
-                cited = re.search(r"`%s`\s*@\s*`([0-9a-f]{7,40})`" % re.escape(ref), pg.get("As of") or "")
-                if cited and not tip.startswith(cited.group(1)):
-                    findings.warn("W4", n, "canonical ref `%s` moved: tip %s, block cites %s" % (ref, tip[:9], cited.group(1)))
-                if git.is_ancestor(tip, "HEAD"):
-                    findings.warn("W4", n, "canonical ref `%s` is now an ancestor of HEAD (merged): replace this stub "
-                           "with the merged page, keep the block" % ref)
+            cited = re.search(r"`%s`\s*@\s*`([0-9a-f]{7,40})`" % re.escape(ref), pg.get("As of") or "")
+            if cited and not tip.startswith(cited.group(1)):
+                findings.warn("W4", n, "canonical ref `%s` moved: tip %s, block cites %s" % (ref, tip[:9], cited.group(1)))
+            if git.is_ancestor(tip, "HEAD"):
+                findings.warn("W4", n, "canonical ref `%s` is now an ancestor of HEAD (merged): replace this stub "
+                       "with the merged page, keep the block" % ref)
     # W1 / W5 -----------------------------------------------------------
     if asof_d and (today - asof_d).days > 14:
         findings.warn("W1", n, "As of %s is %d days old and needs verification"

@@ -95,3 +95,42 @@ class AuditInput(StatusBlockFixture):
         self.assertIn("STATUS PAGES 1", run.stdout)
         strict = self.run_tool("audit.py", "--no-git", "--strict")
         self.assertEqual(strict.returncode, 1, strict.stdout + strict.stderr)
+
+
+class FormatChecksWithoutGit(StatusBlockFixture):
+    def audit_page(self, old, new):
+        wl.write_text(self.page, wl.read(self.page).replace(old, new))
+        self.assertEqual(self.run_tool("status.py", "sync").returncode, 0)
+        return self.run_tool("audit.py", "--no-git")
+
+    def test_tested_needs_dated_child_evidence(self):
+        audit = self.audit_page("- **Tested:** none", "- **Tested:** passed")
+        self.assertEqual(audit.returncode, 1, audit.stdout)
+        self.assertIn("ERROR S8 demo.md: Tested: passed needs at least one dated child line", audit.stdout)
+
+    def test_tested_children_need_date_and_revision(self):
+        audit = self.audit_page("- **Tested:** none", "- **Tested:** passed\n  - unit tests green\n"
+                                "  - 2026-01-02 @ `1abc234` — stale after the rebase")
+        self.assertEqual(audit.returncode, 1, audit.stdout)
+        self.assertIn("ERROR S8 demo.md: Tested line must start with a date", audit.stdout)
+        self.assertIn("ERROR S8 demo.md: Tested line lacks an `@ <revision or label>`", audit.stdout)
+        self.assertIn("WARN  W2 demo.md:", audit.stdout)
+        self.assertNotIn("does not exist", audit.stdout)   # SHA and tag lookups stay git-only
+
+    def test_published_tag_needs_date_and_evidence(self):
+        audit = self.audit_page("- **Published:** no", "- **Published:** `v9.9.9`")
+        self.assertEqual(audit.returncode, 1, audit.stdout)
+        self.assertIn("ERROR S7 demo.md: Published 'v9.9.9' needs a date", audit.stdout)
+        self.assertIn("ERROR S7 demo.md: Published 'v9.9.9' needs an evidence pointer", audit.stdout)
+        self.assertNotIn("does not exist in git", audit.stdout)
+
+    def test_merged_and_canonical_copy_need_backticked_refs(self):
+        wl.write_text(self.page, wl.read(self.page).replace("- **Merged:** no — not in `origin/main`",
+                                                            "- **Merged:** no — not yet")
+                      .replace("- **Superseded:** none", "- **Superseded:** none\n"
+                               "- **Canonical copy:** the other branch"))
+        audit = self.run_tool("audit.py", "--no-git")
+        self.assertEqual(audit.returncode, 1, audit.stdout)
+        self.assertIn("ERROR S6 demo.md: Merged: no must name the target ref(s) in backticks", audit.stdout)
+        self.assertIn("ERROR S9 demo.md: Canonical copy must name `<ref>:<path>` in backticks", audit.stdout)
+

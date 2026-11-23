@@ -487,6 +487,17 @@ IDENT_MAX_DF = 8  # an identifier found on more index lines than this behaves li
 MIN_COMMON_DF = 3  # max_df_share never marks a keyword common on this many index lines or fewer
 
 
+def _mask_identifiers(raw, idents):
+    """Folded `raw` with every identifier span blanked out.
+
+    Words inside an identifier (`proj` in PROJ-12) must not also count as keywords: a leftover
+    word would otherwise match a longer, different identifier such as PROJ-123."""
+    folded = fold(raw)
+    for t in sorted(idents, key=len, reverse=True):
+        folded = ident_regex(t).sub(lambda m: " " * len(m.group(0)), folded)
+    return folded
+
+
 def search(entries, raw, mode="hook", min_keywords=2, max_df_share=None):
     """Rank index entries for a prompt. mode 'hook': >=min_keywords words OR >=1 strong identifier.
     mode 'cli': any single match qualifies. With max_df_share, a keyword found on more than that
@@ -494,9 +505,7 @@ def search(entries, raw, mode="hook", min_keywords=2, max_df_share=None):
     also needs at least one keyword that is not common, so generic words cannot qualify on their
     own. Returns (hits, kws, idents); hits.ident_df has index df."""
     idents_raw = identifiers(raw)
-    kws = set(keywords(raw))
-    for t in idents_raw:
-        kws.discard(fold(t))
+    kws = set(keywords(_mask_identifiers(raw, idents_raw)))
     out = HitList()
     out.ident_df = {}
     if not kws and not idents_raw:

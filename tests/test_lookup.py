@@ -30,6 +30,34 @@ class IssueKeyLookup(unittest.TestCase):
         self.assertEqual(hook.stdout, "")
 
 
+class IdentifierWordsAreNotKeywords(unittest.TestCase):
+    """Words inside a query identifier must not match a longer, different identifier."""
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.root)
+        make_wiki(self.root, {"longer.md": "# Longer\n\nTracked as PROJ-123.\n"},
+                  "- [Longer key](longer.md) — Keywords: PROJ-123, cache eviction\n")
+
+    def test_shorter_issue_key_does_not_match_longer_key(self):
+        run = run_tool("lookup.py", "PROJ-12", cwd=self.root)
+        self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
+        self.assertIn("keywords=[]", run.stdout)
+        self.assertNotIn("longer.md", run.stdout)
+        hook = run_tool("prompt_hook.py", "PROJ-12", cwd=self.root)
+        self.assertEqual(hook.returncode, 0, hook.stderr)
+        self.assertEqual(hook.stdout, "")
+
+    def test_exact_issue_key_and_plain_words_still_match(self):
+        for query in ("PROJ-123", "proj", "cache eviction"):
+            with self.subTest(query=query):
+                run = run_tool("lookup.py", query, cwd=self.root)
+                self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+                self.assertIn("longer.md", run.stdout)
+        hook = run_tool("prompt_hook.py", "PROJ-123", cwd=self.root)
+        self.assertIn("longer.md", hook.stdout)
+
+
 @unittest.skipUnless(shutil.which("git"), "Git is required for branch lookup")
 class BranchLookup(unittest.TestCase):
     ref = "topic-branch"

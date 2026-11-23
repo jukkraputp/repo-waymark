@@ -44,7 +44,7 @@ The audit reports category counts, index integrity, and then findings on topic p
 | `W6` | A status block cites a missing working-tree repository path. |
 | `G1` | A topic page has a broken relative Markdown link. |
 | `G2` | A value matched by the configured release tag pattern has no corresponding Git tag. |
-| `GIT` | Git checks were unavailable. An explicit `--no-git` run instead reports the skip directly. |
+| `GIT` | Git checks were unavailable. An explicit `--no-git` run instead reports the skip directly. Format checks that need no Git (`S6` backticked refs, `S7` date and evidence pointer, `S8` dated child bullets with `@`, `S9` the `<ref>:<path>` shape, and the `W2` void or stale marker) still run; SHA, ref, tag, and ancestry checks do not. |
 | `UTF8` | An index or topic has invalid UTF-8 bytes. The audit reads replacement characters for those bytes and continues checking the file. |
 
 For backticked working-tree paths, `W6` checks a slash-separated token when its first component exists in the selected checkout or it has a recognized file extension. A token ending in `/` needs an existing first component. For Git paths, the selected project directory is `--root` or the discovered wiki root, with `WAYMARK_GIT_ROOT` supplying a separate checkout location when set.

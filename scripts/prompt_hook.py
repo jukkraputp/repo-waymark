@@ -55,10 +55,12 @@ def _env_share(name, default):
     return value if value >= 0 else default
 
 
-def _escape_envelope_tags(text):
-    for tag in (OPENING, CLOSING):
-        text = text.replace(tag, "&lt;" + tag[1:-1] + "&gt;")
-    return text
+def _escape_markup(text):
+    """Neutralise every angle bracket in page- or index-derived text.
+
+    Wiki text is untrusted: a page could otherwise close this wrapper or imitate the harness's
+    own context tags (for example `</system-reminder>`). Only the hook's wrapper lines stay literal."""
+    return text.replace("<", "&lt;").replace(">", "&gt;")
 
 
 def _block_status(page):
@@ -93,8 +95,8 @@ def _show(e, page, root, cfg, entry_chars, status_chars):
     else:
         im = wl.INDEX_LINE.match(e.line)
         entry = "[%s](%s)%s" % (e.title, path, e.line[im.end():]) if im else e.line[2:]
-        return _cap(_escape_envelope_tags("(%s) %s" % (e.cat, entry.strip())), entry_chars)
-    return _cap(_escape_envelope_tags(text), status_chars)
+        return _cap(_escape_markup("(%s) %s" % (e.cat, entry.strip())), entry_chars)
+    return _cap(_escape_markup(text), status_chars)
 
 
 def _is_harness_envelope(text):
@@ -177,7 +179,7 @@ def main():
                         tail = ""
                     title = e.title if e else page
                     path = wl.wiki_path(root, page, cfg)
-                    body_lines.append(_escape_envelope_tags(
+                    body_lines.append(_escape_markup(
                         "- (body: `%s` ×%d) [%s](%s) …%s" % (ident, cnt, title, path, tail)))
                     seen.add(page)
                     if len(body_lines) >= MAX_BODY:
