@@ -286,6 +286,11 @@ _ID_SNAKE = re.compile(r"\b[A-Za-z]\w*(?:[_.]\w+)+\b")
 _ID_VERSION = re.compile(
     r"(?<!\w)(?<!\d\.)(?:(?:[A-Za-z]+-|v)\d+\.\d+(?:\.\d+)?|\d+\.\d+\.\d+)(?!\w|\.\d)"
 )
+_ISSUE_HEAD = r"(?<![\w-])(?<!\w\.)"
+_ISSUE_TAIL = r"(?![\w-]|\.\w)"
+_ID_ISSUE = re.compile(_ISSUE_HEAD + r"[A-Z][A-Z0-9]{1,9}-[0-9]{1,7}" + _ISSUE_TAIL)
+_ISSUE_DENY = {"UTF-8", "UTF-16", "UTF-32", "SHA-1", "SHA-256", "SHA-512",
+               "ISO-8601", "ISO-639", "COVID-19", "MP-3"}
 _ID_SHA = re.compile(r"\b[0-9a-f]{7,40}\b")
 
 
@@ -304,9 +309,14 @@ def _humps(t):
     return len(re.findall(r"[A-Z]", t)) if re.search(r"[a-z]", t) else 0
 
 
+def is_issue_key(t):
+    """Return whether an unfolded token qualifies as an issue-key identifier."""
+    return t not in _ISSUE_DENY and bool(_ID_ISSUE.fullmatch(t))
+
+
 def strong_shape(t):
     """Shapes distinctive enough to qualify alone and to be searched in page bodies."""
-    if _ID_VERSION.fullmatch(t):
+    if _ID_VERSION.fullmatch(t) or is_issue_key(t):
         return True
     if is_sha_shape(t):
         return True
@@ -335,13 +345,14 @@ def _keep(tok):
 
 
 def identifiers(raw):
-    """Exact-identifier tokens from UNFOLDED text: CamelCase, snake/SCREAMING/dotted, versions, SHAs.
+    """Exact identifiers from unfolded text: CamelCase, snake/SCREAMING/dotted, versions, issue keys and SHAs.
 
+    Bare lowercase issue keys are out of scope. Hyphenated and dotted continuations are excluded.
     Filenames (index.md), tool names and lowercase API names are dropped. At most MAX_IDENTS are
     returned, strongest shape and longest first. De-duplicated case-insensitively.
     """
     found = []
-    for rx in (_ID_TICK, _ID_VERSION, _ID_CAMEL, _ID_SNAKE):
+    for rx in (_ID_TICK, _ID_VERSION, _ID_CAMEL, _ID_SNAKE, _ID_ISSUE):
         for m in rx.finditer(raw):
             tok = m.group(1) if rx is _ID_TICK else m.group(0)
             tok = tok.strip(".,;:!?)(]['\"")
@@ -349,6 +360,8 @@ def identifiers(raw):
                 segs = re.split(r"[_.]", tok)
                 if len(tok) < 5 or all(len(s) <= 2 for s in segs):
                     continue
+            if rx is _ID_ISSUE and tok in _ISSUE_DENY:
+                continue
             if len(tok) >= 3 and _keep(tok):
                 found.append(tok)
     for m in _ID_SHA.finditer(raw):
@@ -371,6 +384,8 @@ def identifiers(raw):
 def ident_regex(ident):
     """Boundary-aware matcher for a FOLDED identifier inside a folded line."""
     f = fold(ident)
+    if is_issue_key(ident):
+        return re.compile(_ISSUE_HEAD + re.escape(f) + _ISSUE_TAIL)
     tail = r"(?![a-z0-9_]|\.[0-9])" if _ID_VERSION.fullmatch(ident) \
         else r"(?![a-z0-9_])"
     head = r"(?<![a-z0-9_])"

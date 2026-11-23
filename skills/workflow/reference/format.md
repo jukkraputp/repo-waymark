@@ -27,7 +27,7 @@ Use a neutral H1. Put `<!-- wiki-status v1 -->` directly below it, allowing blan
 | `Published` | `no`, `n/a`, `unknown`, or a backticked Git tag followed by a date and evidence pointer. If you cite the tag's target with `→`, backtick the commit SHA. |
 | `Next` | Next action or blocker, including an owner if known. |
 | `Superseded` | `none`, or replacements written as `old claim → new claim` or `old claim replaced by new claim`. |
-| `Keywords` | Comma-separated terms people may search for, including plain-language aliases and exact identifiers. |
+| `Keywords` | Comma-separated terms people may search for, including plain-language aliases and exact identifiers such as issue keys `ABC-123`. |
 | `Canonical copy` | Optional backticked `<ref>:<path>` pointer for a topic whose authoritative record is on another branch. |
 
 The generated template includes any required project-specific fields. Keep decision, implementation, merge, test, and publication evidence tied to their actual revisions. Use `unknown` when a status or test revision has no evidence. For historical text that can mislead, add a dated banner such as `> **Superseded YYYY-MM-DD:** old claim → replacement (see Current status).`

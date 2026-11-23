@@ -57,7 +57,7 @@ For each status topic, place a top-level Markdown file in the wiki directory and
 - **Published:** unknown
 - **Next:** Review the evidence and update this page.
 - **Superseded:** none
-- **Keywords:** example, topic, review, status, evidence, sample, guide, reference
+- **Keywords:** example, topic, review, status, evidence, sample, guide, reference, ABC-123
 
 <!-- history -->
 ## History
@@ -93,6 +93,8 @@ python3 /path/to/repo-waymark/scripts/lookup.py --root /path/to/project "example
 | `python3 scripts/prompt_hook.py [--root DIR] [PROMPT]` | Preview hook output. Pass prompt words as arguments, or send a JSON object with a `prompt` field or plain prompt text on stdin. |
 
 Lookup accepts `--max N` to cap index hits (default 5), `--json` for structured output, and `--blocks all|top` to show status blocks for all displayed status hits in text output or up to three (default `top`). `--branches` reads the `Canonical copy` at its resolved commit with Git. `--deep` adds body keyword matches when there are fewer than three index hits.
+
+Issue keys such as `ABC-123` are exact identifiers. The prompt hook matches them only via index lines, so list them in a topic's `Keywords` field; lookup also searches page bodies.
 
 | Exit | Status | Lookup | Audit |
 | --- | --- | --- | --- |

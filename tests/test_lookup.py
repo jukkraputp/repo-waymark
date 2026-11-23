@@ -3,7 +3,31 @@ import shutil
 import tempfile
 import unittest
 
-from helpers import PAGE, WIKI_DIR, fixture, git, init_git, run_tool, sync_fixture, wl
+from helpers import PAGE, WIKI_DIR, fixture, git, init_git, make_wiki, run_tool, sync_fixture, wl
+
+
+class IssueKeyLookup(unittest.TestCase):
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.root)
+        make_wiki(self.root, {"indexed.md": "# Indexed\n", "body.md": "# Body\n\n(proj-12)\n"},
+                  "- [Indexed](indexed.md) — Keywords: ABC-123\n- [Body](body.md)\n")
+
+    def test_issue_key_in_index_keywords(self):
+        run = run_tool("lookup.py", "ABC-123", cwd=self.root)
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertIn("identifiers=[ABC-123]", run.stdout)
+        self.assertIn("indexed.md", run.stdout)
+
+    def test_issue_key_only_in_page_body(self):
+        run = run_tool("lookup.py", "PROJ-12", cwd=self.root)
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertIn("Identifier matches in page bodies:", run.stdout)
+        self.assertIn("PROJ-12 ×1  body.md:3", run.stdout)
+
+        hook = run_tool("prompt_hook.py", "PROJ-12", cwd=self.root)
+        self.assertEqual(hook.returncode, 0, hook.stderr)
+        self.assertEqual(hook.stdout, "")
 
 
 @unittest.skipUnless(shutil.which("git"), "Git is required for branch lookup")

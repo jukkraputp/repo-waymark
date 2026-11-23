@@ -86,3 +86,26 @@ class HookStdin(unittest.TestCase):
                 hook = run_tool("prompt_hook.py", prompt, cwd=self.root)
                 self.assertEqual(hook.returncode, 0, hook.stderr)
                 self.assertEqual(hook.stdout, "")
+
+    def test_issue_key_in_index_keywords_qualifies_in_hook(self):
+        self.add_results(1, "Keywords: ABC-123, UTF-8 encoding")
+        for prompt, matches in (("ABC-123", True), ("UTF-8 encoding", False)):
+            with self.subTest(prompt=prompt):
+                hook = run_tool("prompt_hook.py", cwd=self.root, input_text=json.dumps({"prompt": prompt}))
+                self.assertEqual(hook.returncode, 0, hook.stderr)
+                if matches:
+                    self.assertTrue(hook.stdout.startswith("<wiki-index-matches>\n"))
+                    self.assertIn("result-0.md", hook.stdout)
+                else:
+                    self.assertEqual(hook.stdout, "")
+
+    def test_hook_ignores_issue_shaped_terms_only_in_page_bodies(self):
+        self.add_results(1, "Protocol and model notes")
+        (self.root / WIKI_DIR / "result-0.md").write_text(
+            "# Result 0\n\nThe CDN serves http-2 by default.\n", encoding="utf-8",
+        )
+        for prompt in ("HTTP-2", "is GPT-5 better than HTTP-2 for this?"):
+            with self.subTest(prompt=prompt):
+                hook = run_tool("prompt_hook.py", cwd=self.root, input_text=json.dumps({"prompt": prompt}))
+                self.assertEqual(hook.returncode, 0, hook.stderr)
+                self.assertEqual(hook.stdout, "")

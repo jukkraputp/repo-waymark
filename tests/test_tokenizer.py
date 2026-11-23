@@ -26,6 +26,35 @@ class Tokenizer(unittest.TestCase):
         self.assertEqual(wl.identifiers("0.5 `1.5` 10.30"), [])
         self.assertEqual(wl.identifiers("v1.2 rel-1.2.3 1.2.3"), ["v1.2", "rel-1.2.3", "1.2.3"])
 
+    def test_issue_key_identifiers(self):
+        cases = {
+            "what happened with ABC-123?": ["ABC-123"],
+            "AB-1 PROJ-12 PROJ2-77 ABCDEFGHIJ-1234567": [
+                "AB-1", "PROJ-12", "PROJ2-77", "ABCDEFGHIJ-1234567",
+            ],
+            "XABC-123 ABC-1234 ABC-123 ABC-123": ["XABC-123", "ABC-1234", "ABC-123"],
+            "A-1 ABCDEFGHIJK-1 ABC-12345678 X_ABC-123 pre-ABC-123 ABC-123-b ABC-123.md": ["X_ABC"],
+            "UTF-8 UTF-16 UTF-32 SHA-1 SHA-256 SHA-512 ISO-8601 ISO-639 COVID-19 MP-3 abc-123": [],
+            "rel-1.2.3 ABC-123.5": ["rel-1.2.3", "ABC-123.5"],
+            "`UTF-8` `abc-123`": ["UTF-8", "abc-123"],
+        }
+        for prompt, expected in cases.items():
+            with self.subTest(prompt=prompt):
+                self.assertEqual(wl.identifiers(prompt), expected)
+        self.assertTrue(wl.strong_shape("ABC-123"))
+        self.assertFalse(wl.strong_shape("UTF-8"))
+        self.assertFalse(wl.strong_shape("abc-123"))
+
+    def test_issue_key_match_boundaries(self):
+        rx = wl.ident_regex("ABC-123")
+        for line in ("Check ABC-123, please", "(ABC-123)", "See ABC-123."):
+            with self.subTest(line=line):
+                self.assertIsNotNone(rx.search(wl.fold(line)))
+        for line in ("ABC-1234", "XABC-123", "ABC-123.5", "ABC-123.md", "ABC-123-b",
+                     "pre-ABC-123", "pre.ABC-123"):
+            with self.subTest(line=line):
+                self.assertIsNone(rx.search(wl.fold(line)))
+
 
 class Qualify(unittest.TestCase):
     def setUp(self):

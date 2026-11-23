@@ -2,8 +2,9 @@
 """Surface matching wiki entries for a Claude Code UserPromptSubmit hook.
 
 Reads a JSON prompt from stdin or a test prompt from argv. Exact identifiers
-can match on their own, and unmatched strong identifiers can find topic pages
-by body search. Generic word matches need two distinct keywords by default.
+can match on their own. Unmatched strong identifiers other than issue keys
+can find topic pages by body search. Generic word matches need two distinct
+keywords by default.
 Nothing is printed unless a match qualifies.
 """
 import json
@@ -98,8 +99,9 @@ def main():
         entry_chars = _env_int("ENTRY_CHARS", 240)
         status_chars = _env_int("STATUS_CHARS", 380)
         body_lines = []
-        # body fallback: only for strong-shaped identifiers no index line mentions, and never on long pastes
-        body_idents = [t for t in idents if wl.strong_shape(t) and not hits.ident_df.get(t)]
+        # Issue-key shapes also match common labels such as HTTP-2 in page bodies.
+        body_idents = [t for t in idents
+                       if wl.strong_shape(t) and not wl.is_issue_key(t) and not hits.ident_df.get(t)]
         if body_idents and len(raw) <= 4096:
             seen = {h.entry.page for h in shown}
             title_of = {}

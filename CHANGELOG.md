@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.1.1]
+
+- Recognize issue-tracker keys as exact identifiers; the prompt hook matches them through index lines, while lookup also searches page bodies.
+
 ## [0.1.0]
 
 - Added a Claude Code plugin with prompt-time wiki matching and skills for wiki lookup, audits, and status synchronization.
