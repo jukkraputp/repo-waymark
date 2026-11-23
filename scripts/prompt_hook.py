@@ -4,7 +4,7 @@
 Reads a JSON prompt from stdin or a test prompt from argv. Exact identifiers
 can match on their own. Unmatched strong identifiers other than issue keys
 can find topic pages by body search. Generic word matches need two distinct
-keywords by default.
+keywords by default, at least one of them on no more than 3% of index lines.
 Nothing is printed unless a match qualifies.
 """
 import json
@@ -18,10 +18,13 @@ try:
 except Exception:  # a broken helper must never break a prompt
     wl = None
 
-MAX_BODY = 3
+MAX_BODY = 2
 OUTPUT_CHARS = 8000
 OPENING = "<wiki-index-matches>"
 CLOSING = "</wiki-index-matches>"
+HEADER = "Wiki pages matching this prompt. Open one before acting; check Git for anything newer."
+# Status fields with these values carry no information in a preview.
+EMPTY_STATUS_VALUES = ("unknown", "n/a", "none")
 # Claude Code also fires UserPromptSubmit for turns it starts itself and passes harness text as the
 # prompt. Skip a prompt that starts with one of these envelope tags: matching its boilerplate only
 # injects unrelated entries.
@@ -44,6 +47,14 @@ def _env_int(name, default):
         return default
 
 
+def _env_share(name, default):
+    try:
+        value = float(os.environ.get("WAYMARK_HOOK_" + name, default))
+    except ValueError:
+        return default
+    return value if value >= 0 else default
+
+
 def _escape_envelope_tags(text):
     for tag in (OPENING, CLOSING):
         text = text.replace(tag, "&lt;" + tag[1:-1] + "&gt;")
@@ -64,12 +75,19 @@ def _block_status(page):
     return m.groups()[2:] if m else None
 
 
+def _compact_status(date, head, summary):
+    """'date · field value … — summary', dropping fields whose value says nothing."""
+    parts = [p for p in head.split(" · ")
+             if p.rpartition(" ")[2] not in EMPTY_STATUS_VALUES]
+    return " · ".join([date] + parts) + " — " + summary
+
+
 def _show(e, page, root, cfg, entry_chars, status_chars):
     path = wl.wiki_path(root, e.page or "", cfg)
     if page and page.status_error:
         text = "(%s) [%s](%s) — %s" % (e.cat, e.title, path, page.status_error)
     elif st := _block_status(page):
-        text = "(%s) %s [%s] Status %s: %s — %s" % ((e.cat, e.title, path) + st)
+        text = "(%s) [%s](%s) — %s" % (e.cat, e.title, path, _compact_status(*st))
     elif e.is_status:
         text = "(%s) [%s](%s) — status unavailable" % (e.cat, e.title, path)
     else:
@@ -125,10 +143,11 @@ def main():
 
         hits, _, idents = wl.search(
             entries, raw, mode="hook", min_keywords=_env_int("MIN_KEYWORDS", 2),
+            max_df_share=_env_share("MAX_DF", 0.03),
         )
-        shown = hits[:_env_int("MAX_HITS", 6)]
-        entry_chars = _env_int("ENTRY_CHARS", 240)
-        status_chars = _env_int("STATUS_CHARS", 380)
+        shown = hits[:_env_int("MAX_HITS", 3)]
+        entry_chars = _env_int("ENTRY_CHARS", 160)
+        status_chars = _env_int("STATUS_CHARS", 220)
         body_lines = []
         # Issue-key shapes also match common labels such as HTTP-2 in page bodies.
         body_idents = [t for t in idents
@@ -151,7 +170,7 @@ def main():
                     if pg and pg.status_error:
                         tail = pg.status_error
                     elif st:
-                        tail = _cap(" Status %s: %s — %s" % st, 160)
+                        tail = _cap(" " + _compact_status(*st), 160)
                     elif e and not e.is_status:
                         tail = _cap(e.line[wl.INDEX_LINE.match(e.line).end():].strip(), 160)
                     else:
@@ -167,12 +186,7 @@ def main():
                     break
         if not shown and not body_lines:
             return 0
-        out = [OPENING,
-               "Entries from the project wiki index that match this prompt. "
-               f"Open the linked pages in {_escape_envelope_tags(wl.wiki_path(root, cfg=cfg))} "
-               "before acting on a match. "
-               "A dated status preview comes from the page's Current status block. "
-               "Check Git for updates since that date."]
+        out = [OPENING, HEADER]
         budget = OUTPUT_CHARS - len(CLOSING) - 1
         prefix = _cap("\n".join(out), budget - 1) + "\n"
         previews = (

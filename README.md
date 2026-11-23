@@ -134,9 +134,10 @@ Root resolution uses `--root` first, then `WAYMARK_ROOT`. Without an override, d
 | `CLAUDE_PROJECT_DIR` | Starting directory for discovery when set. |
 | `WAYMARK_GIT_ROOT` | Separate checkout for audit Git evidence and lookup branch reads. Defaults to the wiki project root. |
 | `WAYMARK_HOOK_MIN_KEYWORDS` | `2` distinct keyword matches for a normal prompt hit. Exact identifiers can qualify on their own. |
-| `WAYMARK_HOOK_MAX_HITS` | `6` index matches shown by the hook. |
-| `WAYMARK_HOOK_ENTRY_CHARS` | `240` characters per plain index preview. |
-| `WAYMARK_HOOK_STATUS_CHARS` | `380` characters per status preview. |
+| `WAYMARK_HOOK_MAX_DF` | `0.03`: a keyword on more than this share of index lines (and on more than 3 lines) is common. A word-only hit also needs one keyword that is not common. |
+| `WAYMARK_HOOK_MAX_HITS` | `3` index matches shown by the hook. |
+| `WAYMARK_HOOK_ENTRY_CHARS` | `160` characters per plain index preview. |
+| `WAYMARK_HOOK_STATUS_CHARS` | `220` characters per status preview. The preview shows the date and only the status fields whose value is not `unknown`, `n/a` or `none`. |
 
 ## Limits
 

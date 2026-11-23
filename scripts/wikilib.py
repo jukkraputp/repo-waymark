@@ -453,11 +453,15 @@ class Hit(object):
 
 
 IDENT_MAX_DF = 8  # an identifier found on more index lines than this behaves like a plain word
+MIN_COMMON_DF = 3  # max_df_share never marks a keyword common on this many index lines or fewer
 
 
-def search(entries, raw, mode="hook", min_keywords=2):
+def search(entries, raw, mode="hook", min_keywords=2, max_df_share=None):
     """Rank index entries for a prompt. mode 'hook': >=min_keywords words OR >=1 strong identifier.
-    mode 'cli': any single match qualifies. Returns (hits, kws, idents); hits.ident_df has index df."""
+    mode 'cli': any single match qualifies. With max_df_share, a keyword found on more than that
+    share of index lines (never MIN_COMMON_DF lines or fewer) is common: a word-only hook match then
+    also needs at least one keyword that is not common, so generic words cannot qualify on their
+    own. Returns (hits, kws, idents); hits.ident_df has index df."""
     idents_raw = identifiers(raw)
     kws = set(keywords(raw))
     for t in idents_raw:
@@ -496,12 +500,17 @@ def search(entries, raw, mode="hook", min_keywords=2):
         per.append((e, mk, mi))
     out.ident_df = {t: idf_df[t] for t, _, _ in idents}
     strong = {t for t, _, _ in idents if 0 < idf_df[t] <= IDENT_MAX_DF and strong_shape(t)}
+    common = set()
+    if max_df_share is not None:
+        limit = max(MIN_COMMON_DF, max_df_share * len(entries))
+        common = {k for k, count in df.items() if count > limit}
     for e, mk, mi in per:
         mi_strong = [t for t in mi if t in strong]
         mi_weak = [t for t in mi if t not in strong]
         eff = len(mk) + len(mi_weak)
         if mode == "hook":
-            ok = eff >= min_keywords or bool(mi_strong)
+            anchored = not common or bool(mi_weak) or bool(mk - common)
+            ok = (eff >= min_keywords and anchored) or bool(mi_strong)
         else:
             ok = eff >= 1 or bool(mi_strong)
         if not ok:

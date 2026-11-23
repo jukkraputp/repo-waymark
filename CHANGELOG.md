@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.1.3]
+
+- The prompt hook injects less text: a word-only match also needs a keyword that is not common across the index (`WAYMARK_HOOK_MAX_DF`), it shows 3 shorter previews by default, status previews list only informative fields, and the header is one short line.
+
 ## [0.1.2]
 
 - The prompt hook ignores turns Claude Code starts itself (task notifications, subagent and session messages) instead of matching their boilerplate.

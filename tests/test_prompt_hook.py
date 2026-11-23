@@ -1,9 +1,11 @@
 import json
+import tempfile
 from pathlib import Path
 import shutil
 import unittest
 
-from helpers import PAGE, WIKI_DIR, StatusBlockFixture, fixture, run_tool, wl
+from helpers import (DATE, PAGE, WIKI_DIR, StatusBlockFixture, fixture, make_wiki, run_tool, wl,
+                     write_config)
 
 
 class HookUsesTopicBlock(StatusBlockFixture):
@@ -164,3 +166,108 @@ class HookSkipsSelfStartedTurns(unittest.TestCase):
         for extra in ({"promptSource": "user"}, {"origin": {"kind": "user"}}, {"origin": {}}):
             with self.subTest(extra=extra):
                 self.assertIn("widget.md", self.hook({"prompt": self.BODY, **extra}))
+
+
+class HookCompactOutput(StatusBlockFixture):
+    """Hook previews stay short: a one-line header, few hits and informative status fields."""
+
+    def test_header_is_one_short_line(self):
+        run = self.run_tool("prompt_hook.py", "rc-2.4.1")
+        self.assertEqual(run.returncode, 0, run.stderr)
+        lines = run.stdout.splitlines()
+        self.assertEqual(lines[0], "<wiki-index-matches>")
+        self.assertFalse(lines[1].startswith("- "), run.stdout)
+        self.assertLessEqual(len(lines[1]), 90)
+        self.assertIn("before acting", lines[1])
+        self.assertIn("Git", lines[1])
+        self.assertTrue(lines[2].startswith("- "), run.stdout)
+
+    def test_status_preview_omits_empty_fields(self):
+        wl.write_text(self.page, PAGE.replace("- **Decision:** approved — owner",
+                                              "- **Decision:** unknown")
+                      .replace("- **Published:** no", "- **Published:** n/a"))
+        run = self.run_tool("prompt_hook.py", "rc-2.4.1")
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn("[Demo topic](.claude/memory/demo.md) — %s · code committed · merged no "
+                      "— Built, not merged." % DATE, run.stdout)
+        for gone in ("Status ", "decision", "tested none", "published", "unknown", "n/a"):
+            self.assertNotIn(gone, run.stdout)
+        # the generated index line keeps every field
+        self.assertIn("tested none", wl.read_raw(self.index)[0])
+
+    def test_status_preview_omits_empty_extra_fields(self):
+        write_config(self.root, extra_fields={"Deploy env": {
+            "vocab": ["staging", "production", "n/a", "unknown"], "label": "deploy"}})
+        for value, shown in (("unknown", False), ("staging — evidence", True)):
+            with self.subTest(value=value):
+                wl.write_text(self.page, PAGE.replace(
+                    "- **Tested:**", "- **Deploy env:** %s\n- **Tested:**" % value))
+                run = self.run_tool("prompt_hook.py", "rc-2.4.1")
+                self.assertEqual(run.returncode, 0, run.stderr)
+                self.assertEqual("deploy staging" in run.stdout, shown, run.stdout)
+                self.assertNotIn("deploy unknown", run.stdout)
+
+
+class HookDefaults(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(fixture())
+        self.addCleanup(shutil.rmtree, self.root)
+
+    def test_default_shows_three_hits(self):
+        with (self.root / WIKI_DIR / "index-a.md").open("a", encoding="utf-8") as stream:
+            for number in range(8):
+                stream.write(f"- [Result {number}](result-{number}.md) — UniqueWidget overview\n")
+        hook = run_tool("prompt_hook.py", cwd=self.root,
+                        input_text=json.dumps({"prompt": "UniqueWidget"}))
+        self.assertEqual(hook.returncode, 0, hook.stderr)
+        self.assertEqual(sum(line.startswith("- ") for line in hook.stdout.splitlines()), 3)
+
+
+class HookCommonWords(unittest.TestCase):
+    """Words found on many index lines cannot qualify a match without a rarer keyword."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp)
+        lines = ["# idx"]
+        for number in range(40):
+            lines.append(f"- [Note {number}](note-{number}.md) — deploy release checklist item {number}")
+        lines.append("- [Pelican notes](pelican.md) — deploy pelican harbor schedule")
+        lines.append("- [Lantern notes](lantern.md) — lantern harbor maintenance; see LanternConfig")
+        make_wiki(self.tmp, {"pelican.md": "# Pelican\n", "lantern.md": "# Lantern\n"},
+                  "\n".join(lines) + "\n")
+        self.entries = wl.load_entries(self.tmp)
+
+    def hook(self, prompt, **env):
+        run = run_tool("prompt_hook.py", cwd=self.tmp,
+                       input_text=json.dumps({"prompt": prompt}), **env)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        return run.stdout
+
+    def test_common_words_need_a_rarer_keyword(self):
+        self.assertEqual(self.hook("deploy the release"), "")
+        self.assertEqual(wl.search(self.entries, "deploy the release", mode="hook",
+                                   max_df_share=0.03)[0], [])
+        self.assertIn("pelican.md", self.hook("deploy pelican"))
+        two_rare = self.hook("pelican harbor")
+        self.assertIn("pelican.md", two_rare)
+        self.assertNotIn("note-", two_rare)
+        self.assertIn("lantern.md", self.hook("where is LanternConfig"))
+
+    def test_share_is_configurable(self):
+        self.assertEqual(self.hook("deploy the release"), "")
+        self.assertIn("note-", self.hook("deploy the release", WAYMARK_HOOK_MAX_DF="1"))
+
+    def test_small_index_floor(self):
+        root = fixture()
+        self.addCleanup(shutil.rmtree, root)
+        entries = wl.load_entries(root)
+        hits, _, _ = wl.search(entries, "plain words", mode="hook", max_df_share=0.01)
+        self.assertEqual([h.entry.page for h in hits], ["other.md"])
+
+    def test_lookup_cli_unaffected(self):
+        run = run_tool("lookup.py", "deploy the release", cwd=self.tmp)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn("note-", run.stdout)
+        self.assertEqual(
+            len(wl.search(self.entries, "deploy the release", mode="cli")[0]), 41)
