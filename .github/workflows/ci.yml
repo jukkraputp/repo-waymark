@@ -3,18 +3,27 @@ on: [push, pull_request]
 jobs:
   test:
     strategy:
+      fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
-            python-version: '3.9'
           - os: ubuntu-latest
             python-version: '3.13'
           - os: macos-latest
             python-version: '3.13'
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
+      - run: python -m unittest discover -s tests -v
+
+  # Python 3.9 is the minimum supported version, but hosted Ubuntu runners no
+  # longer ship it, so this job runs in the official python:3.9 image instead.
+  test-py39:
+    runs-on: ubuntu-latest
+    container: python:3.9
+    steps:
+      - uses: actions/checkout@v7
+      - run: python --version && git --version
       - run: python -m unittest discover -s tests -v
