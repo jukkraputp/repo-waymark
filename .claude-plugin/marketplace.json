@@ -1,0 +1,6 @@
+{
+  "name": "repo-waymark",
+  "owner": {"name": "jukkraputp"},
+  "description": "Repository status and wiki tools.",
+  "plugins": [{"name": "repo-waymark", "source": "./", "description": "Find and audit evidence-backed repository status pages."}]
+}

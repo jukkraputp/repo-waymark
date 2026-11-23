@@ -1,0 +1,6 @@
+{
+  "wiki_dir": ".claude/memory",
+  "main_ref": "origin/main",
+  "extra_fields": {},
+  "release_tag_pattern": null
+}

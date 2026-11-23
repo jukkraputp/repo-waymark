@@ -1,0 +1,11 @@
+{
+  "name": "repo-waymark",
+  "displayName": "Repo Waymark",
+  "version": "0.1.0",
+  "description": "Find and audit evidence-backed repository status pages.",
+  "author": {"name": "jukkraputp", "url": "https://github.com/jukkraputp"},
+  "repository": "https://github.com/jukkraputp/repo-waymark",
+  "homepage": "https://github.com/jukkraputp/repo-waymark",
+  "license": "MIT",
+  "keywords": ["wiki", "status", "audit", "memory"]
+}

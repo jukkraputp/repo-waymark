@@ -1,0 +1,29 @@
+# Project configuration
+
+Add `.repo-waymark.json` at the project root when it needs to override the defaults. Omitted keys keep their defaults.
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `wiki_dir` | `.claude/memory` | Relative path within the project to the wiki directory. |
+| `main_ref` | `origin/main` | Git reference used to verify mainline merge claims. |
+| `extra_fields` | `{}` | Project-specific status fields keyed by the name used in the block. Each field has a nonempty `vocab` of single tokens, a `label` for the generated index, and an optional `omit_when` token. A configured field remains required in the block even if its current token omits it from the index. |
+| `release_tag_pattern` | `null` | Python regular expression that matches complete release tag strings in topic text. A match without a Git tag raises `G2`. The default disables this scan. |
+
+```json
+{
+  "wiki_dir": "docs/wiki",
+  "main_ref": "origin/trunk",
+  "extra_fields": {
+    "Approval": {
+      "vocab": ["pending", "granted", "unknown"],
+      "label": "approval",
+      "omit_when": "unknown"
+    }
+  },
+  "release_tag_pattern": "\\bv[0-9]+\\.[0-9]+\\.[0-9]+\\b"
+}
+```
+
+The CLI resolves the project from `--root DIR`, then `WAYMARK_ROOT`. Without either, it walks up from `CLAUDE_PROJECT_DIR` or the working directory, stopping at a Git checkout boundary. Discovery looks for `.repo-waymark.json` or a default wiki with category indexes. Set `WAYMARK_GIT_ROOT` to use a separate local checkout for Git evidence, such as when working on an exported wiki.
+
+The prompt hook supports `WAYMARK_HOOK_MIN_KEYWORDS` (default `2`), `WAYMARK_HOOK_MAX_HITS` (`6`), `WAYMARK_HOOK_ENTRY_CHARS` (`240`), and `WAYMARK_HOOK_STATUS_CHARS` (`380`). These tune the hook's suggestions. CLI lookup can qualify a result with one matching keyword.
