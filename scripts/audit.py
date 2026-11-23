@@ -205,17 +205,19 @@ def check_status_page(root, pg, git, findings, today):
             findings.err("S6", n, "Merged names ref `%s` which does not resolve" % r)
     live = [r for r in refs if resolved.get(r)]
     main_named = any(r in main_names for r in live)
-    if mtok in ("no", "integration", "main", "partial") and not refs:
+    label = pg.config["merged_label"]
+    if mtok in ("no", "integration", label, "partial") and not refs:
         findings.err("S6", n, "Merged: %s must name the target ref(s) in backticks" % mtok)
-    if mtok in ("main", "integration") and not code_shas:
+    if mtok in (label, "integration") and not code_shas:
         findings.err("S6", n, "Merged: %s needs at least one backticked SHA in Code" % mtok)
-    if mtok == "main" and code_shas:
+    if mtok == label and code_shas:
         if not git.commit(main_ref):
-            findings.err("S6", n, "Merged: main but `%s` does not resolve" % main_ref)
+            findings.err("S6", n, "Merged: %s but `%s` does not resolve" % (label, main_ref))
         else:
             for s in code_shas:
                 if git.is_ancestor(s, main_ref) is False:
-                    findings.err("S6", n, "Merged: main but Code commit %s is not an ancestor of `%s`" % (s, main_ref))
+                    findings.err("S6", n, "Merged: %s but Code commit %s is not an ancestor of `%s`"
+                                 % (label, s, main_ref))
     if mtok == "integration" and code_shas:
         cands = [r for r in live if r not in main_names]
         if not cands:

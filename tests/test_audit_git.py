@@ -164,6 +164,29 @@ class AuditMutations(unittest.TestCase):
         audit = self.run_tool("audit.py", "--strict")
         self.assertEqual(audit.returncode, 0, audit.stdout + audit.stderr)
 
+    def test_merged_label_claim_checked_against_main_ref(self):
+        write_config(self.root, main_ref="feature/nested", merged_label="staging")
+        self.mutate(self.page, "integration — in `feature-x`, not in `origin/main`",
+                    "staging — in `feature/nested`")
+        sync = self.run_tool("status.py", "sync")
+        self.assertEqual(sync.returncode, 0, sync.stdout + sync.stderr)
+        self.assertIn("merged staging", self.index.read_text(encoding="utf-8"))
+        audit = self.run_tool("audit.py", "--strict")
+        self.assertEqual(audit.returncode, 0, audit.stdout + audit.stderr)
+        write_config(self.root, main_ref="origin/main", merged_label="staging")
+        output = self.expect("S6")
+        self.assertIn("Merged: staging but Code commit %s is not an ancestor of `origin/main`"
+                      % self.feature, output)
+
+    def test_merged_label_claim_needs_ref_and_code_sha(self):
+        write_config(self.root, main_ref="feature/nested", merged_label="staging")
+        self.mutate(self.page, "integration — in `feature-x`, not in `origin/main`", "staging — merged")
+        self.mutate(self.page, f"committed — `{self.feature}`", "committed — see history")
+        self.assertEqual(self.run_tool("status.py", "sync").returncode, 0)
+        output = self.expect("S6")
+        self.assertIn("Merged: staging must name the target ref(s) in backticks", output)
+        self.assertIn("Merged: staging needs at least one backticked SHA in Code", output)
+
     def test_release_tag_pattern_is_opt_in(self):
         self.mutate(self.page, "old body", "See train-42, train-42, and v4.0.0.")
         audit = self.run_tool("audit.py", "--strict")

@@ -113,7 +113,8 @@ Add an optional `.repo-waymark.json` to the project root. The example below show
   "wiki_dir": ".claude/memory",
   "main_ref": "origin/main",
   "extra_fields": {},
-  "release_tag_pattern": null
+  "release_tag_pattern": null,
+  "merged_label": "main"
 }
 ```
 
@@ -123,8 +124,11 @@ Add an optional `.repo-waymark.json` to the project root. The example below show
 | `main_ref` | Git reference used to verify claims that code has reached the main line. |
 | `extra_fields` | Required project-specific status fields. Each field defines a single-token `vocab`, an index `label`, and an optional `omit_when` token that keeps that value out of the generated index. |
 | `release_tag_pattern` | Optional regex matching complete tag names cited in page text. During Git audits, matches are checked against local tags. |
+| `merged_label` | The `Merged` value meaning "in `main_ref`", shown as `merged <label>` in index lines and previews. Set it when merges land on another branch first, for example `"main_ref": "origin/staging", "merged_label": "staging"`. |
 
 `main_ref` defaults to `origin/main`. If your repository has no such remote-tracking ref or uses another default branch, set `main_ref` in `.repo-waymark.json` to the ref you verify against, such as `main` in a local-only repository or `origin/master` for a remote branch named `master`.
+
+`merged_label` defaults to `main`. If work merges into a branch such as `staging` and reaches `main` later, set `main_ref` to that branch and `merged_label` to a matching word so a reader never sees `merged main` for code that is not on the main branch. The label is lowercase, starts with a letter or digit, uses only letters, digits, `.`, `_`, `/`, and `-`, does not end in `.`, is at most 32 characters, and cannot be another `Merged` value. Once a label is set, a block that writes `Merged: main` is reported as an error until it uses the label.
 
 Root resolution uses `--root` first, then `WAYMARK_ROOT`. Without an override, discovery starts at `CLAUDE_PROJECT_DIR` when set or the current directory and walks up to the repository boundary. A project is discovered from its config file or a default wiki containing an `index-*.md` file. [Configuration reference](skills/workflow/reference/config.md)
 

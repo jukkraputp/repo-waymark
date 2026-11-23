@@ -70,7 +70,11 @@ DEFAULT_CONFIG = {
     "main_ref": "origin/main",
     "extra_fields": {},
     "release_tag_pattern": None,
+    "merged_label": "main",
 }
+# The Merged value that means "in `main_ref`" is configurable; the other values are fixed.
+MERGED_LABEL_DEFAULT = DEFAULT_CONFIG["merged_label"]
+_MERGED_LABEL = re.compile(r"[a-z0-9][a-z0-9._/-]{0,31}")
 
 
 class ConfigError(ValueError):
@@ -96,6 +100,12 @@ def _parse_config(path, text):
     main_ref = config["main_ref"]
     if not isinstance(main_ref, str) or not main_ref.strip() or any(c.isspace() for c in main_ref):
         raise ConfigError(f"{path}: main_ref must be a Git reference")
+    label = config["merged_label"]
+    reserved = [token for token in VOCAB["Merged"] if token != MERGED_LABEL_DEFAULT]
+    if (not isinstance(label, str) or not _MERGED_LABEL.fullmatch(label)
+            or first_token(label) != label or label in reserved):
+        raise ConfigError(f"{path}: merged_label must match [a-z0-9][a-z0-9._/-]{{0,31}}, must not end in '.', "
+                          f"and must not be one of the other Merged values ({', '.join(reserved)})")
     pattern = config["release_tag_pattern"]
     if pattern is not None:
         if not isinstance(pattern, str):
@@ -205,12 +215,33 @@ def script_command(name):
     return "python3 " + shlex.quote(path)
 
 
+def merged_vocab(config):
+    """The Merged vocabulary, with the configured label standing for "in `main_ref`"."""
+    label = config.get("merged_label", MERGED_LABEL_DEFAULT)
+    return [label if token == MERGED_LABEL_DEFAULT else token for token in VOCAB["Merged"]]
+
+
+def merged_label_issue(page):
+    """A fix hint when a page writes the default `main` while another merged_label is configured."""
+    label = page.config.get("merged_label", MERGED_LABEL_DEFAULT)
+    if label == MERGED_LABEL_DEFAULT or first_token(page.get("Merged") or "") != MERGED_LABEL_DEFAULT:
+        return None
+    return (f"Merged: {MERGED_LABEL_DEFAULT} is ambiguous here; this repository sets merged_label to "
+            f"{label!r} for code in `{page.config['main_ref']}`: write `Merged: {label}`")
+
+
 def status_template(config):
     fields = "".join(
         f"- **{name}:** <{'|'.join(field['vocab'])}> — <evidence>\n"
         for name, field in config["extra_fields"].items()
     )
-    return TEMPLATE.replace("- **Tested:**", fields + "- **Tested:**", 1)
+    template = TEMPLATE
+    label = config.get("merged_label", MERGED_LABEL_DEFAULT)
+    if label != MERGED_LABEL_DEFAULT:
+        template = template.replace(
+            "<%s>" % "|".join(VOCAB["Merged"]), "<%s>" % "|".join(merged_vocab(config)), 1
+        ).replace("never a bare main>", "never a bare %s>" % label, 1)
+    return template.replace("- **Tested:**", fields + "- **Tested:**", 1)
 
 
 def read_raw(path):
@@ -594,7 +625,8 @@ class Page(object):
         self.config = DEFAULT_CONFIG if config is None else config
         extra_fields = self.config["extra_fields"]
         self.required_keys = REQUIRED_KEYS[:6] + list(extra_fields) + REQUIRED_KEYS[6:]
-        self.vocab = {**VOCAB, **{name: field["vocab"] for name, field in extra_fields.items()}}
+        self.vocab = {**VOCAB, "Merged": merged_vocab(self.config),
+                      **{name: field["vocab"] for name, field in extra_fields.items()}}
         self._canonical_keys = {_normalize_field_key(key): key for key in self.required_keys}
         self.text, self.crlf = read_raw(path) if text is None else (text, False)
         self.lines = self.text.split("\n")
@@ -635,7 +667,7 @@ class Page(object):
                                             if line.rstrip() == STATUS_HEADING), None)
             if self.current_status_idx is not None:
                 self._parse_block(self.current_status_idx + 1)
-        if (self.opted_in or expect_status) and self.status_issues and all(
+        if (self.opted_in or expect_status) and any(code != "S3" for code, _ in self.status_issues) and all(
                 code != "S17" for code, _ in self.status_issues):
             detail = ("generated status index entry has no valid source block" if expect_status
                       else "opted-in page has no valid status block")
@@ -650,6 +682,9 @@ class Page(object):
             self.status_issues.append(("S1", "status block lacks required key(s): " + ", ".join(missing)))
         if self.history_idx is None:
             self.status_issues.append(("S1", "no `<!-- history -->` marker after the block"))
+        label_issue = merged_label_issue(self)
+        if label_issue:
+            self.status_issues.append(("S3", label_issue))
 
     def _parse_block(self, start):
         n = len(self.lines)

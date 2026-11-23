@@ -21,7 +21,7 @@ Use a neutral H1. Put `<!-- wiki-status v1 -->` directly below it, allowing blan
 | `About` | A stable topic description, up to 160 characters. |
 | `Decision` | `proposed`, `approved`, `trial`, `rejected`, `superseded`, `n/a`, or `unknown`, plus evidence. |
 | `Code` | `none`, `uncommitted`, `partial`, `committed`, `n/a`, or `unknown`. Backtick any Git commit SHA cited as evidence. |
-| `Merged` | `no`, `integration`, `main`, `partial`, `n/a`, or `unknown`. For `no`, `integration`, `main`, and `partial`, name the actual checked ref or refs in backticks. For `integration` and `main`, cite the commits under `Code`. |
+| `Merged` | `no`, `integration`, `main`, `partial`, `n/a`, or `unknown`. `main` means the code is in the configured `main_ref`; when the project sets `merged_label` (for example `staging`), write that label instead of `main`, which is then invalid. For `no`, `integration`, `main` (or the label), and `partial`, name the actual checked ref or refs in backticks. For `integration` and `main` (or the label), cite the commits under `Code`. |
 | `Tested` | `none`, `partial`, `passed`, `failed`, or `unknown`. For `partial`, `passed`, or `failed`, add dated child bullets with `@` followed by a backticked SHA or tag, an unquoted environment label, or `unknown`. Include the observed result and its evidence. |
 | `Unverified` | Claims or steps still missing evidence, or `none known`. |
 | `Published` | `no`, `n/a`, `unknown`, or a backticked Git tag followed by a date and evidence pointer. If you cite the tag's target with `→`, backtick the commit SHA. |

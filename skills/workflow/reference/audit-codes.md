@@ -16,10 +16,10 @@ The audit reports category counts, index integrity, and then findings on topic p
 | --- | --- |
 | `S1` | Block placement, required fields, or the history marker are invalid. |
 | `S2` | `As of` has an invalid or future date, is missing `checked at`, or cites an unavailable commit. |
-| `S3` | A status value starts with a token outside its field vocabulary or has an invalid `Published` value. |
+| `S3` | A status value starts with a token outside its field vocabulary or has an invalid `Published` value. With a non-default `merged_label`, `Merged: main` is reported here (and by `status.py check`) with the label to use. |
 | `S4` | The topic lacks exactly one matching index link, the block cannot render, or the index line or description differs from the generated value. |
 | `S5` | A cited commit SHA does not exist in the Git checkout used for evidence. If the same SHA is reported by `S2` for `As of`, it is counted once. |
-| `S6` | `Merged` names an unresolved or missing ref, lacks the required code commit evidence, or contradicts Git ancestry. |
+| `S6` | `Merged` names an unresolved or missing ref, lacks the required code commit evidence, or contradicts Git ancestry. The `main` value (or the configured `merged_label`) is checked against `main_ref`. |
 | `S7` | The `Published` tag is missing, peels to a different commit than cited, or lacks a date or evidence pointer. |
 | `S8` | `Tested` lacks required dated child bullets, an `@` revision or label, or a resolvable backticked SHA or tag. |
 | `S9` | `Canonical copy` lacks a backticked `<ref>:<path>` or its ref or project-relative path cannot be resolved. |

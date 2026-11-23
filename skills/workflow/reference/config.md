@@ -8,6 +8,7 @@ Add `.repo-waymark.json` at the project root when it needs to override the defau
 | `main_ref` | `origin/main` | Git reference used to verify mainline merge claims. |
 | `extra_fields` | `{}` | Project-specific status fields keyed by the name used in the block. Each field has a nonempty `vocab` of single tokens, a `label` for the generated index, and an optional `omit_when` token. A configured field remains required in the block even if its current token omits it from the index. |
 | `release_tag_pattern` | `null` | Python regular expression that matches complete release tag strings in topic text. A match without a Git tag raises `G2`. The default disables this scan. |
+| `merged_label` | `main` | The `Merged` value that means "in `main_ref`". Lowercase, matching `[a-z0-9][a-z0-9._/-]{0,31}`, not ending in `.`, and not one of `no`, `integration`, `partial`, `n/a`, or `unknown`. With a non-default label, a block that writes `Merged: main` is invalid (`S3`) until it uses the label. |
 
 ```json
 {
@@ -23,6 +24,17 @@ Add `.repo-waymark.json` at the project root when it needs to override the defau
   "release_tag_pattern": "\\bv[0-9]+\\.[0-9]+\\.[0-9]+\\b"
 }
 ```
+
+A team that merges into `staging` and releases to `main` later can name that stage instead of `main`:
+
+```json
+{
+  "main_ref": "origin/staging",
+  "merged_label": "staging"
+}
+```
+
+Blocks then write ``- **Merged:** staging — in `origin/staging`, not in `origin/main` ``, and index lines, lookup output, and hook previews show `merged staging`. `status.py template` prints the vocabulary with the configured label.
 
 The CLI resolves the project from `--root DIR`, then `WAYMARK_ROOT`. Without either, it walks up from `CLAUDE_PROJECT_DIR` or the working directory, stopping at a Git checkout boundary. Discovery looks for `.repo-waymark.json` or a default wiki with category indexes. Set `WAYMARK_GIT_ROOT` to use a separate local checkout for Git evidence, such as when working on an exported wiki.
 
