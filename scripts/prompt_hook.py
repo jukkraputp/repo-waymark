@@ -22,6 +22,13 @@ MAX_BODY = 3
 OUTPUT_CHARS = 8000
 OPENING = "<wiki-index-matches>"
 CLOSING = "</wiki-index-matches>"
+# Claude Code also fires UserPromptSubmit for turns it starts itself and passes harness text as the
+# prompt. Skip a prompt that starts with one of these envelope tags: matching its boilerplate only
+# injects unrelated entries.
+HARNESS_ENVELOPE_TAGS = (
+    "task-notification", "agent-message", "side-sessions-event", "ci-monitor-event",
+    "teammate-message", "channel-message",
+)
 
 
 def _cap(text, n):
@@ -72,6 +79,24 @@ def _show(e, page, root, cfg, entry_chars, status_chars):
     return _cap(_escape_envelope_tags(text), status_chars)
 
 
+def _is_harness_envelope(text):
+    stripped = text.lstrip()
+    for tag in HARNESS_ENVELOPE_TAGS:
+        if stripped.startswith("<" + tag):
+            rest = stripped[len(tag) + 1:]
+            if rest[:1] == ">" or rest[:1].isspace():
+                return True
+    return False
+
+
+def _is_system_turn(payload):
+    # promptSource and origin appear in transcripts but are not documented hook input;
+    # honored only in case Claude Code starts passing them.
+    origin = payload.get("origin")
+    return payload.get("promptSource") == "system" or (
+        isinstance(origin, dict) and origin.get("kind") not in (None, "user"))
+
+
 def main():
     try:
         if wl is None:
@@ -81,8 +106,14 @@ def main():
             raw = " ".join(args)
         else:
             data = sys.stdin.read()
-            raw = (json.loads(data).get("prompt") or "") if data.strip().startswith("{") else data
-        if not isinstance(raw, str) or not raw.strip():
+            if data.strip().startswith("{"):
+                payload = json.loads(data)
+                if _is_system_turn(payload):
+                    return 0
+                raw = payload.get("prompt") or ""
+            else:
+                raw = data
+        if not isinstance(raw, str) or not raw.strip() or _is_harness_envelope(raw):
             return 0
         root = wl.find_root(explicit_root)
         cfg = wl.config_for(root)

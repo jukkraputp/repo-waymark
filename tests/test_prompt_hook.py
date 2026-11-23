@@ -109,3 +109,58 @@ class HookStdin(unittest.TestCase):
                 hook = run_tool("prompt_hook.py", cwd=self.root, input_text=json.dumps({"prompt": prompt}))
                 self.assertEqual(hook.returncode, 0, hook.stderr)
                 self.assertEqual(hook.stdout, "")
+
+
+class HookSkipsSelfStartedTurns(unittest.TestCase):
+    BODY = "UniqueWidget finished with overview notes"
+    ENVELOPES = (
+        '<task-notification>\n<task-id>t1</task-id>\n%s\n</task-notification>',
+        '<agent-message from="worker">\n[Subagent hand-back] %s',
+        '<side-sessions-event>%s</side-sessions-event>',
+        '<ci-monitor-event>%s</ci-monitor-event>',
+        '<teammate-message id="1">%s</teammate-message>',
+        '<channel-message source="x">%s</channel-message>',
+    )
+
+    def setUp(self):
+        self.root = Path(fixture())
+        self.addCleanup(shutil.rmtree, self.root)
+        mem = self.root / WIKI_DIR
+        with (mem / "index-a.md").open("a", encoding="utf-8") as stream:
+            stream.write("- [Widget notes](widget.md) — UniqueWidget overview notes\n")
+        (mem / "widget.md").write_text("# Widget\n", encoding="utf-8")
+
+    def hook(self, payload):
+        run = run_tool("prompt_hook.py", cwd=self.root, input_text=json.dumps(payload))
+        self.assertEqual(run.returncode, 0, run.stderr)
+        return run.stdout
+
+    def test_control_prompt_matches(self):
+        self.assertIn("widget.md", self.hook({"prompt": self.BODY}))
+
+    def test_envelope_prompts_print_nothing(self):
+        for template in self.ENVELOPES:
+            for prefix in ("", "  \n\t"):
+                with self.subTest(template=template[:20], prefix=repr(prefix)):
+                    self.assertEqual(self.hook({"prompt": prefix + template % self.BODY}), "")
+
+    def test_envelope_not_at_start_still_matches(self):
+        for prompt in (
+            "see " + self.ENVELOPES[0] % self.BODY,
+            '<pasted_content id="1">' + self.ENVELOPES[0] % self.BODY + "</pasted_content>",
+            "/review " + self.BODY,
+            "<task-notificationX>" + self.BODY,
+        ):
+            with self.subTest(prompt=prompt[:30]):
+                self.assertIn("widget.md", self.hook({"prompt": prompt}))
+
+    def test_prompt_source_system_skips(self):
+        self.assertEqual(self.hook({"prompt": self.BODY, "promptSource": "system"}), "")
+
+    def test_origin_kind_non_user_skips(self):
+        self.assertEqual(self.hook({"prompt": self.BODY, "origin": {"kind": "task-notification"}}), "")
+
+    def test_user_sources_still_match(self):
+        for extra in ({"promptSource": "user"}, {"origin": {"kind": "user"}}, {"origin": {}}):
+            with self.subTest(extra=extra):
+                self.assertIn("widget.md", self.hook({"prompt": self.BODY, **extra}))

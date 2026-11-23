@@ -102,7 +102,7 @@ Issue keys such as `ABC-123` are exact identifiers. The prompt hook matches them
 | `1` | Check found problems, or sync could not update some requested pages | No matches or empty query | Findings, including warnings with `--strict` |
 | `2` | Usage, configuration, or runtime error | Usage, configuration, or runtime error | Usage, configuration, or runtime error |
 
-The prompt hook exits `0` with or without matches and silently handles errors. Its output is capped at 8,000 characters. Read the linked topic before using a preview. [Audit code reference](skills/workflow/reference/audit-codes.md)
+The prompt hook exits `0` with or without matches and silently handles errors. It ignores turns Claude Code starts itself (task notifications, subagent and session messages). Its output is capped at 8,000 characters. Read the linked topic before using a preview. [Audit code reference](skills/workflow/reference/audit-codes.md)
 
 ## Configuration
 
