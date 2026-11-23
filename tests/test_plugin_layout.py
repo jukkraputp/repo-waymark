@@ -18,7 +18,7 @@ class PluginLayout(unittest.TestCase):
     def test_manifests(self):
         plugin = read_json(".claude-plugin/plugin.json")
         self.assertEqual(plugin["name"], "repo-waymark")
-        self.assertEqual(plugin["version"], "0.1.5")
+        self.assertEqual(plugin["version"], "0.1.6")
         self.assertEqual(plugin["license"], "MIT")
         for key in ("displayName", "description", "author", "repository", "homepage", "keywords"):
             self.assertTrue(plugin[key])
@@ -36,6 +36,13 @@ class PluginLayout(unittest.TestCase):
         self.assertNotIn("version", entry)
         self.assertFalse((ROOT / "bin").exists())
         self.assertFalse((ROOT / "CLAUDE.md").exists())
+
+    def test_repo_hooks_ship_and_compile(self):
+        for name in ("post_git.py", "stop_check.py"):
+            with self.subTest(hook=name):
+                path = ROOT / "scripts" / "repo_hooks" / name
+                self.assertTrue(path.is_file())
+                compile(path.read_text(encoding="utf-8"), str(path), "exec")
 
     def test_skill_frontmatter(self):
         skills = sorted((ROOT / "skills").glob("*/SKILL.md"))

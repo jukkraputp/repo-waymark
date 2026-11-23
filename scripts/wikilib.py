@@ -172,8 +172,11 @@ def split_root_arg(argv):
     return root, rest
 
 
-def find_root(explicit_root=None):
-    """Find a wiki from an explicit root, an environment override, or the current checkout."""
+def find_root(explicit_root=None, start=None):
+    """Find a wiki from an explicit root, an environment override, or the current checkout.
+
+    Without an override, the search walks up from `start`, else CLAUDE_PROJECT_DIR, else the
+    process working directory, and stops at the first directory holding `.git`."""
     override = explicit_root if explicit_root is not None else os.environ.get("WAYMARK_ROOT")
     if override is not None:
         root = os.path.abspath(override)
@@ -181,7 +184,7 @@ def find_root(explicit_root=None):
             return root
         raise ConfigError(f"No wiki found at {root}")
 
-    start = root = os.path.abspath(os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd())
+    start = root = os.path.abspath(start or os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd())
     while True:
         if os.path.isfile(os.path.join(root, CONFIG_NAME)):
             if os.path.isdir(wiki_dir(root, config_for(root))):
@@ -194,6 +197,21 @@ def find_root(explicit_root=None):
             break
         root = parent
     raise ConfigError(f"No wiki found from {start}")
+
+
+def find_hook_root(payload_cwd=None, explicit_root=None):
+    """The wiki root for a hook: `--root`/WAYMARK_ROOT, else the hook payload's `cwd`, else
+    CLAUDE_PROJECT_DIR or the process directory.
+
+    The payload `cwd` follows Claude into a worktree or after `cd`; CLAUDE_PROJECT_DIR stays at
+    the session's start root. When `cwd` holds no wiki, the search falls back to the project."""
+    if (explicit_root is None and os.environ.get("WAYMARK_ROOT") is None
+            and isinstance(payload_cwd, str) and payload_cwd and os.path.isdir(payload_cwd)):
+        try:
+            return find_root(start=payload_cwd)
+        except ConfigError:
+            pass
+    return find_root(explicit_root)
 
 
 def git_root_for(root):

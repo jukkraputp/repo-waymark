@@ -122,6 +122,7 @@ def main():
         if wl is None:
             return 0
         explicit_root, args = wl.split_root_arg(sys.argv[1:])
+        payload_cwd = None
         if args:
             raw = " ".join(args)
         else:
@@ -131,11 +132,14 @@ def main():
                 if _is_system_turn(payload):
                     return 0
                 raw = payload.get("prompt") or ""
+                payload_cwd = payload.get("cwd")
             else:
                 raw = data
         if not isinstance(raw, str) or not raw.strip() or _is_harness_envelope(raw):
             return 0
-        root = wl.find_root(explicit_root)
+        # The payload cwd follows Claude into a worktree, so previews match the checkout the
+        # Stop hook checks; CLAUDE_PROJECT_DIR stays at the session's start root.
+        root = wl.find_hook_root(payload_cwd, explicit_root)
         cfg = wl.config_for(root)
         entries = wl.load_entries(root, cfg)
         indexed = wl.indexed_status_pages(entries)

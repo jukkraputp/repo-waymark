@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.6]
+
+- Added two vendorable project hooks under `scripts/repo_hooks/`, documented in the README with an exec-form `.claude/settings.json` example. `post_git.py` (`PostToolUse`, `Bash|PowerShell`) reminds Claude that a `git commit`, `git merge`, `git push`, `gh pr create`, or `gh pr merge` may have changed a topic's status. `stop_check.py` (`Stop`) blocks once when `status.py check` finds problems in wiki files with uncommitted changes in this checkout. Both read the wiki directory, `main_ref`, and `merged_label` from the project's configuration and print commands relative to the repository root.
+- `post_git.py` sees through `command`, `sudo`, `env`, `time`, and `nohup` prefixes and gh's `-R/--repo` flag, skips `git push --dry-run`/`-n`, `git commit --dry-run`, and `git -C` into a directory outside the repository, and reads PowerShell command text.
+- `stop_check.py` stays silent for drift that is already committed, when Git is unavailable, and when the check crashes.
+- The prompt hook looks for the wiki from the hook input's `cwd` before `CLAUDE_PROJECT_DIR`, so inside a worktree it previews the same checkout the Stop hook checks. `--root` and `WAYMARK_ROOT` still take precedence.
+
 ## [0.1.5]
 
 - The prompt hook escapes every `<` and `>` in page- and index-derived text, so wiki content can no longer close its wrapper or imitate harness tags such as `</system-reminder>`. Only the hook's own wrapper lines stay literal, and the 8000-character cap applies after escaping.
