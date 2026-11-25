@@ -109,7 +109,7 @@ python3 /path/to/repo-waymark/scripts/lookup.py --root /path/to/project "example
 | `python3 scripts/audit.py [--root DIR] [--strict] [--no-git]` | Check wiki links, status blocks, and Git evidence. `--strict` makes warnings fail the audit. `--no-git` skips Git checks. |
 | `python3 scripts/prompt_hook.py [--root DIR] [PROMPT]` | Preview hook output. Pass prompt words as arguments, or send a JSON object with a `prompt` field or plain prompt text on stdin. |
 
-Lookup accepts `--max N` to cap index hits (default 5), `--json` for structured output, and `--blocks all|top` to show status blocks and `Where to look` maps for all displayed hits in text output or for up to three (default `top`). `--branches` reads the `Canonical copy` at its resolved commit with Git. `--deep` adds body keyword matches when there are fewer than three index hits.
+Lookup accepts `--max N` to cap index hits (default 5), `--json` for structured output, and `--blocks all|top` to show status blocks for index hits and `Where to look` maps for displayed hits in text output, either all or up to three of each (default `top`). When fewer than `--max` index hits are found, lookup also ranks non-trap map bullet roles, symbols and file basenames by keyword rarity, listing map matches after index hits. `--deep` also searches maps when the index fills the limit and adds body keyword matches when there are fewer than three index hits. `--branches` reads the `Canonical copy` at its resolved commit with Git.
 
 Issue keys such as `ABC-123` are exact identifiers. The prompt hook matches them only via index lines, so list them in a topic's `Keywords` field; lookup also searches page bodies.
 

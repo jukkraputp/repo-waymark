@@ -79,6 +79,23 @@ class HookStdin(unittest.TestCase):
                 stream.write(f"- [Result {number}]({name}) — UniqueWidget {description}\n")
                 (mem / name).write_text(f"# Result {number}\n", encoding="utf-8")
 
+    def test_nonplural_prompts_keep_existing_bytes(self):
+        expected = ("<wiki-index-matches>\n"
+                    "Wiki pages matching this prompt. Open one before acting; check Git for anything newer.\n"
+                    "- (a) [Other](.claude/memory/other.md) — plain words ready launch rc-2.4.10 DemoThing note\n"
+                    "</wiki-index-matches>\n")
+        for prompt, output in (("ready launch", expected), ("plain words", expected), ("DemoThing", expected),
+                               ("nothing relevant here", "")):
+            with self.subTest(prompt=prompt):
+                self.assertEqual(run_tool("prompt_hook.py", prompt, cwd=self.root).stdout.encode("utf-8"),
+                                 output.encode("utf-8"))
+
+    def test_canvas_export_does_not_match_canva_export(self):
+        self.add_results(1, "Canva export")
+        hook = run_tool("prompt_hook.py", "canvas export", cwd=self.root)
+        self.assertEqual(hook.returncode, 0, hook.stderr)
+        self.assertEqual(hook.stdout.encode("utf-8"), b"")
+
     def test_hook_accepts_json_stdin_and_caps_hits(self):
         self.add_results(8, "overview")
         hook = run_tool(

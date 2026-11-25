@@ -329,6 +329,31 @@ def keywords(text):
             and not FILE_EXT.search(w)}
 
 
+def plural_stem(word):
+    """Remove conservative English plural endings, retaining short or ambiguous words."""
+    if len(word) < 5:
+        return word
+    if word.endswith("ies"):
+        stem = word[:-3] + "y"
+    elif word.endswith("sses"):
+        stem = word[:-2]
+    elif word.endswith(("ches", "shes", "xes", "zes")):
+        stem = word[:-2]
+    elif word.endswith("s") and word[-2] not in "asui":
+        stem = word[:-1]
+    else:
+        return word
+    return stem if len(stem) >= 4 else word
+
+
+def _plural_fallback(word, stem):
+    if stem != word:
+        return stem
+    if len(word) >= 5 and word.endswith("y") and word[-2] in "bcdfghjklmnpqrstvwxyz":
+        return word[:-1] + "ie"
+    return None
+
+
 _ID_TICK = re.compile(r"`([^`\s]{3,60})`")
 _ID_CAMEL = re.compile(r"\b[A-Z]?[a-z]+(?:[A-Z][a-z0-9]+)+\b")
 _ID_SNAKE = re.compile(r"\b[A-Za-z]\w*(?:[_.]\w+)+\b")
@@ -492,8 +517,10 @@ def indexed_status_pages(entries):
 
 
 class HitList(list):
-    """Ranked hits; `.ident_df` maps each identifier to the number of index lines it matched."""
+    """Ranked hits with identifier frequencies and pre-pruning query terms."""
     ident_df = None
+    query_keywords = None
+    query_prefixes = None
 
 
 class Hit(object):
@@ -516,6 +543,15 @@ def _mask_identifiers(raw, idents):
     return folded
 
 
+def _prefix_matches(vocab, prefix):
+    matches = set()
+    i = bisect.bisect_left(vocab, prefix)
+    while i < len(vocab) and vocab[i].startswith(prefix):
+        matches.add(vocab[i])
+        i += 1
+    return matches
+
+
 def search(entries, raw, mode="hook", min_keywords=2, max_df_share=None):
     """Rank index entries for a prompt. mode 'hook': >=min_keywords words OR >=1 strong identifier.
     mode 'cli': any single match qualifies. With max_df_share, a keyword found on more than that
@@ -523,20 +559,32 @@ def search(entries, raw, mode="hook", min_keywords=2, max_df_share=None):
     also needs at least one keyword that is not common, so generic words cannot qualify on their
     own. Returns (hits, kws, idents); hits.ident_df has index df."""
     idents_raw = identifiers(raw)
-    kws = set(keywords(_mask_identifiers(raw, idents_raw)))
+    groups = defaultdict(set)
+    fallbacks = {}
+    for keyword in keywords(_mask_identifiers(raw, idents_raw)):
+        stem = plural_stem(keyword)
+        groups[stem].add(keyword)
+        fallbacks[keyword] = _plural_fallback(keyword, stem)
+    # Preserve the original query word in reports; equivalent forms count only once.
+    variants = {min(group, key=lambda w: (len(w), w)): group for group in groups.values()}
+    kws = set(variants)
     out = HitList()
     out.ident_df = {}
+    out.query_keywords = set(kws)
+    out.query_prefixes = {k: group | {fallbacks[word] for word in group if fallbacks[word]}
+                          for k, group in variants.items()}
     if not kws and not idents_raw:
         return out, kws, []
     # keywords: expand each to the index vocabulary once (bisect over sorted words), drop dead ones
     vocab = sorted(set().union(*[e.wordset for e in entries])) if entries else []
     expanded = {}
-    for k in kws:
-        i = bisect.bisect_left(vocab, k)
+    for k, group in variants.items():
         ws = set()
-        while i < len(vocab) and vocab[i].startswith(k):
-            ws.add(vocab[i])
-            i += 1
+        for word in group:
+            matches = _prefix_matches(vocab, word)
+            if not matches and fallbacks[word]:
+                matches = _prefix_matches(vocab, fallbacks[word])
+            ws.update(matches)
         if ws:
             expanded[k] = ws
     kws = set(expanded)

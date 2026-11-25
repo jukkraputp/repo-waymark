@@ -7,6 +7,16 @@ from helpers import WIKI_DIR, fixture, sync_fixture, wl
 
 
 class Tokenizer(unittest.TestCase):
+    def test_plural_stem(self):
+        cases = {"switches": "switch", "timeouts": "timeout", "entries": "entry",
+                 "boxes": "boxes", "classes": "class", "status": "status",
+                 "class": "class", "analysis": "analysis", "bus": "bus", "news": "news",
+                 "canvas": "canvas", "atlas": "atlas", "alias": "alias",
+                 "proceed": "proceed", "ceiling": "ceiling", "loading": "loading"}
+        for word, expected in cases.items():
+            with self.subTest(word=word):
+                self.assertEqual(wl.plural_stem(word), expected)
+
     def test_identifiers(self):
         got = {wl.fold(t) for t in wl.identifiers(
             "ImportSizeLimit BatchConfig.DEFAULT_LIMIT rc-2.4.1 v1.2.3 1a2b3c4d5 batch_queue")}
@@ -57,6 +67,30 @@ class Tokenizer(unittest.TestCase):
 
 
 class Qualify(unittest.TestCase):
+    def test_literal_prefix_matches_take_precedence_over_plural_fallback(self):
+        entries = [wl.Entry("a", "index-a.md", 1, "- [One](one.md) — queue entry"),
+                   wl.Entry("a", "index-a.md", 2, "- [Two](two.md) — queue entries")]
+        for query, page in (("entry", "one.md"), ("entries", "two.md")):
+            with self.subTest(query=query):
+                hits, _, _ = wl.search(entries, query, mode="cli")
+                self.assertEqual([(hit.entry.page, hit.kws) for hit in hits], [(page, [query])])
+
+    def test_plural_fallback_accepts_either_query_form(self):
+        for query, word in (("entry", "entries"), ("entries", "entry")):
+            with self.subTest(query=query):
+                entry = wl.Entry("a", "index-a.md", 1, f"- [Example](topic.md) — queue {word}")
+                hits, _, _ = wl.search([entry], query, mode="cli")
+                self.assertEqual([(hit.entry.page, hit.kws) for hit in hits], [("topic.md", [query])])
+                hits, _, _ = wl.search([entry], f"queue {query}", mode="hook")
+                self.assertEqual([(hit.entry.page, hit.kws) for hit in hits],
+                                 [("topic.md", sorted(["queue", query]))])
+
+    def test_plural_search_and_deduplication(self):
+        entry = wl.Entry("a", "index-a.md", 1, "- [Language](language.md) — language switch")
+        self.assertEqual(len(wl.search([entry], "language switches", mode="hook")[0]), 1)
+        self.assertEqual(wl.search([entry], "switch switches", mode="hook")[0], [])
+        self.assertEqual(wl.search([entry], "`switches`", mode="cli")[0], [])
+
     def setUp(self):
         self.d = fixture()
         self.entries = wl.load_entries(self.d)

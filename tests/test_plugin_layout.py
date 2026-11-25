@@ -18,7 +18,7 @@ class PluginLayout(unittest.TestCase):
     def test_manifests(self):
         plugin = read_json(".claude-plugin/plugin.json")
         self.assertEqual(plugin["name"], "repo-waymark")
-        self.assertEqual(plugin["version"], "0.1.7")
+        self.assertEqual(plugin["version"], "0.1.8")
         self.assertEqual(plugin["license"], "MIT")
         for key in ("displayName", "description", "author", "repository", "homepage", "keywords"):
             self.assertTrue(plugin[key])
