@@ -31,7 +31,7 @@ The audit reports category counts, index integrity, and then findings on topic p
 | `S15` | A required field uses a noncanonical spelling or capitalization. |
 | `S16` | A line in the block cannot be parsed. |
 | `S17` | The opted-in or indexed status block is missing or invalid, or a generated entry has no readable page. |
-| `S18` | A `Where to look` map is malformed: no heading after the marker, a bullet without a backticked pointer or ` — role`, no bullets or more than 12, a second map section, a bullet marker other than `- `, or, on a status page, a map placed before `<!-- history -->`. |
+| `S18` | A `Where to look` map is malformed: no heading after the marker, a bullet without a backticked pointer or ` — role`, no bullets or more than 12, a second map section, a list item other than `- ` at the start of a line (`*`, `+`, numbered or indented items), or, on a status page, a map placed before `<!-- history -->`. |
 
 ## Warnings
 

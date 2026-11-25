@@ -170,6 +170,11 @@ class AuditMap(unittest.TestCase):
             self.assertNotIn("G1", out)
             self.assertNotIn("G2", out)
             self.assertIn("S18 arch.md", out)   # the findings that belong to the map are still there
+            page.write_text(original + "\n<!-- x -->\n\n<!-- wiki-map v1 -->\n## Where to look\n\n"
+                            "- `src/a.py` `v9.9.9` — replaced by `v6.6.6`\n")
+            out = run_tool("audit.py", cwd=self.root, WAYMARK_ROOT=self.root).stdout
+            self.assertIn("v6.6.6", out)       # role text is still scanned for release tags
+            self.assertNotIn("v9.9.9", out)    # the symbol is not
             # without masking this prose would be flagged
             page.write_text(original + "\nSee [[helper-fn]] and v9.9.9.\n")
             out = run_tool("audit.py", cwd=self.root, WAYMARK_ROOT=self.root).stdout
@@ -356,6 +361,7 @@ class MapTool(unittest.TestCase):
         git(r, "checkout", "--quiet", "-b", "feat")
         commit("feat", lib__feat="f\n", **{".claude__memory__feat.md": "# f\n"})
         git(r, "checkout", "--quiet", "main")
+        git(r, "branch", "same")   # a second name for the tip commit of main
 
     def run_map(self, *args, cwd=None):
         return run_tool("map.py", *args, cwd=cwd or self.root)
@@ -452,6 +458,31 @@ class MapTool(unittest.TestCase):
         self.assertEqual(self.run_map("suggest", "--branch", "nope").returncode, 2)
         self.assertEqual(self.run_map("suggest", "--max", "0", "WA-1").returncode, 2)
 
+    def test_ref_is_qualified_by_name_even_when_it_points_at_main(self):
+        r = self.run_map("suggest", "--ref", "same", "unrelated")
+        self.assertEqual(self.paths(r), ["same:lib/other"])
+        self.assertEqual(self.paths(self.run_map("suggest", "--ref", "main", "unrelated")), ["lib/other"])
+
+    def test_tree_read_failure_is_exit_2(self):
+        original = wl.Git.run
+
+        def run(self, *args, **kwargs):
+            return (128, "") if args and args[0] == "ls-tree" else original(self, *args, **kwargs)
+
+        with mock.patch.object(wl.Git, "run", run), mock.patch("sys.stderr"):
+            self.assertEqual(maptool.main(["--root", str(self.root), "suggest", "WA-1"]), 2)
+            self.assertEqual(maptool.main(["--root", str(self.root), "suggest", "--branch", "feat"]), 2)
+        self.assertEqual(self.run_map("suggest", "WA-1").returncode, 0)
+
+    def test_template_takes_no_suggest_options_and_empty_values_are_usage_errors(self):
+        self.assertEqual(self.run_map("template", "--commit", "HEAD").returncode, 2)
+        self.assertEqual(self.run_map("template", "--max", "3").returncode, 2)
+        self.assertEqual(self.run_map("template").returncode, 0)
+        for flag in ("--branch=", "--ref=", "--commit="):
+            with self.subTest(flag=flag):
+                r = self.run_map("suggest", flag, "WA-1") if flag != "--branch=" else self.run_map("suggest", flag)
+                self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+
     def test_non_ascii_and_quoted_names_survive(self):
         r = self.run_map("suggest", "UNI-1")
         self.assertEqual(r.returncode, 0, r.stderr)
@@ -512,12 +543,40 @@ class ParserEdges(unittest.TestCase):
                 self.assertIn("S18", codes(s))
 
     def test_mask_pointers_covers_invalid_and_duplicate_maps(self):
-        text = (self.HEAD + "- `src/[[helper-fn]].py` `v9.9.9` — no role\n" + "- bad `x/[[other-one]]`\n\n"
+        text = (self.HEAD + "- `src/[[helper-fn]].py` `v9.9.9` — no role\n" + "- `x/[[other-one]] unclosed\n\n"
                 + self.HEAD + "- `vendor/v1.2.3/a.py` — dup\n")
         out = maplib.mask_pointers(text)
         for gone in ("[[helper-fn]]", "v9.9.9", "[[other-one]]", "v1.2.3"):
             self.assertNotIn(gone, out)
         self.assertEqual(out.count("\n"), text.count("\n"))
+
+    def test_mask_keeps_role_text_and_stops_at_the_parser_boundaries(self):
+        text = (self.HEAD + "- `a/[[hidden-one]].py` `v1.0.0` — role with `v9.9.9` and [[role-link]]\n"
+                "<!-- note -->\n- `b/[[after-comment]].py` — x\n"
+                "## Other\n- `c/[[after-h2]].py` — y\n")
+        out = maplib.mask_pointers(text)
+        self.assertNotIn("[[hidden-one]]", out)
+        self.assertNotIn("v1.0.0", out)
+        self.assertIn("`v9.9.9`", out)
+        self.assertIn("[[role-link]]", out)
+        self.assertIn("[[after-comment]]", out)
+        self.assertIn("[[after-h2]]", out)
+        self.assertEqual(maplib.mask_pointers("# T\n\nnothing\n"), "# T\n\nnothing\n")
+
+    def test_indented_heading_is_accepted(self):
+        for heading in ("  ## Where to look", "   ## Where to look  "):
+            s = maplib.parse_map("<!-- wiki-map v1 -->\n" + heading + "\n\n- `a.py` — x\n")
+            self.assertTrue(s.usable, (heading, s.issues))
+        self.assertFalse(maplib.parse_map("<!-- wiki-map v1 -->\n    ## Where to look\n\n- `a.py` — x\n").usable)
+
+    def test_indented_and_ordered_items_are_s18_after_a_valid_bullet(self):
+        for item in ("  * `b.py` — y", " + `b.py` — y", "1. `b.py` — y", "2) `b.py` — y", "  - `b.py` — y"):
+            with self.subTest(item=item):
+                s = maplib.parse_map(self.HEAD + "- `a.py` — x\n" + item + "\n")
+                self.assertFalse(s.usable)
+                self.assertIn("S18", codes(s))
+        ok = maplib.parse_map(self.HEAD + "- `a.py` — x\n    continuation text\n\nplain prose\n")
+        self.assertTrue(ok.usable, ok.issues)
 
     def test_map_for_page_only_reads_top_level_files_inside_the_wiki(self):
         with tempfile.TemporaryDirectory() as d:
@@ -537,6 +596,9 @@ class ParserEdges(unittest.TestCase):
                 pass
             cfg = wl.config_for(str(root))
             self.assertIsNotNone(maplib.map_for_page(str(root), cfg, "ok.md"))
+            for name in ("MEMORY.md", "index.md", "index-a.md"):
+                (wiki / name).write_text(body)
+                self.assertIsNone(maplib.map_for_page(str(root), cfg, name), name)
             for bad in ("../guide.md", "sub/deep.md", "link.md", "/etc/passwd", "ok.txt", "missing.md", "..", ""):
                 with self.subTest(bad=bad):
                     self.assertIsNone(maplib.map_for_page(str(root), cfg, bad))

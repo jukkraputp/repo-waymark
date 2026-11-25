@@ -17,8 +17,8 @@ diffed against its first parent (a root commit against the empty tree; a commit 
 boundary has unknown history and is skipped with a note). Files are ranked by how many of those
 commits touch them, then by lines changed. Files that are not regular files at the ref, and files in
 the wiki directory, are dropped. Up to --max (default 8) bullets are printed with a `TODO` role, then
-a line listing the commits used. When --ref names a different commit than `main_ref`, pointers are
-written `REF:path`, because a plain pointer is read at `main_ref`.
+a line listing the commits used. When --ref is given and is not the `main_ref` string, pointers are
+written `REF:path`, because a plain pointer is read at `main_ref` and would drift from REF.
 
 `--branch REF` instead lists the files REF changes against its merge base with `main_ref`, written
 as `REF:path` pointers. Put `--` before TERMs that start with `-`.
@@ -172,8 +172,12 @@ def emit(chosen, prefix=""):
 
 
 def pickable(git, commit, path, cfg):
-    return (not in_wiki(path, cfg) and "`" not in path and "\n" not in path
-            and maplib.blob_at(git, commit, git.project_path(path)) is not None)
+    if in_wiki(path, cfg) or "`" in path or "\n" in path:
+        return False
+    try:
+        return maplib.blob_at(git, commit, git.project_path(path), strict=True) is not None
+    except maplib.GitError as exc:
+        raise GitFailure(str(exc)) from exc
 
 
 def suggest(root, cfg, opts):
@@ -201,7 +205,8 @@ def suggest(root, cfg, opts):
     if tip is None:
         print("`%s` does not resolve" % ref, file=sys.stderr)
         return 2
-    prefix = ref + ":" if opts.ref and tip != base_commit else ""
+    # Qualify by the requested ref NAME: a plain pointer follows `main_ref`, so it would drift later.
+    prefix = opts.ref + ":" if opts.ref and opts.ref != base else ""
     if opts.commit:
         shas = []
         for given in opts.commit:
@@ -243,6 +248,12 @@ def suggest(root, cfg, opts):
     return 0
 
 
+def _nonempty(value):
+    if not value:
+        raise argparse.ArgumentTypeError("the value must not be empty")
+    return value
+
+
 def main(argv):
     # Keep a literal `--` for argparse: it ends option parsing, so a TERM may start with `-`.
     if "--" in argv:
@@ -256,12 +267,14 @@ def main(argv):
         print(exc, file=sys.stderr)
         return 2
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("cmd", choices=("template", "suggest"))
-    parser.add_argument("--ref")
-    parser.add_argument("--branch")
-    parser.add_argument("--commit", action="append", metavar="SHA")
-    parser.add_argument("--max", type=int, default=8)
-    parser.add_argument("terms", nargs="*", metavar="TERM")
+    sub = parser.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("template", help="print a page skeleton")
+    sg = sub.add_parser("suggest", help="draft map bullets from Git history")
+    sg.add_argument("--ref", type=_nonempty)
+    sg.add_argument("--branch", type=_nonempty)
+    sg.add_argument("--commit", action="append", metavar="SHA", type=_nonempty)
+    sg.add_argument("--max", type=int, default=8)
+    sg.add_argument("terms", nargs="*", metavar="TERM")
     opts = parser.parse_args(args + tail)
     if opts.cmd == "template":
         sys.stdout.write(TEMPLATE)

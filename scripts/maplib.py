@@ -28,7 +28,11 @@ FILE_MODES = ("100644", "100755")
 _FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
 _BULLET_HEAD = re.compile(r"^- (?P<trap>Trap: )?`(?P<pointer>[^`]+)`(?: `(?P<symbol>[^`]+)`)?(?P<rest>.*)$")
 _H2 = re.compile(r"^ {0,3}##(?: |\t|$)")
-_OTHER_MARKER = re.compile(r"^(?:[*+](?:[ \t]|$)|-\t)")
+_HEADING = re.compile(r"^ {0,3}## Where to look[ \t]*$")
+# Any list item up to three spaces in, in any marker style. Only `- ` at column 0 is a map bullet.
+_LIST_ITEM = re.compile(r"^ {0,3}(?:[*+-]|\d{1,9}[.)])(?:[ \t]|$)")
+# The pointer (closed, or an unclosed prefix to the end of the line) and the symbol of a list item.
+_POINTER_SPAN = re.compile(r"^(?P<lead> {0,3}(?:[*+-]|\d{1,9}[.)])[ \t]+(?:Trap: )?)(?:`[^`]*`|`.*)(?: `[^`]*`)?")
 _ROLE = re.compile(r"^ — (?P<role>\S.*)$")
 _LINE_SUFFIX = re.compile(r":\d+(?:-\d+)?$")
 _SYMBOL_SPLIT = re.compile(r"\.|::|#")
@@ -78,6 +82,16 @@ def _fenced_lines(lines):
     return flags
 
 
+def _section_end(lines, fenced, start):
+    """Index where the map section starting at line `start` stops: the next H2 or HTML comment line
+    outside a fence, else the end of the text. The parser and `mask_pointers` both use this."""
+    for j in range(start + 1, len(lines)):
+        stripped = lines[j].strip()
+        if not fenced[j] and (_H2.match(lines[j]) or (stripped.startswith("<!--") and stripped.endswith("-->"))):
+            return j
+    return len(lines)
+
+
 def split_pointer(pointer):
     """(ref or None, path, line suffix or None) of a backticked pointer, or None when unusable."""
     suffix = None
@@ -121,26 +135,21 @@ def parse_map(text):
     i = markers[0] + 1
     while i < len(lines) and not lines[i].strip():
         i += 1
-    if i >= len(lines) or lines[i].rstrip() != MAP_HEADING:
+    if i >= len(lines) or not _HEADING.match(lines[i]):
         section.issues.append("`%s` must be followed by the heading `%s`" % (MAP_MARKER, MAP_HEADING))
         return section
     section.start = i
-    end = len(lines)
-    for j in range(i + 1, len(lines)):
-        stripped = lines[j].strip()
-        if not fenced[j] and (_H2.match(lines[j])
-                              or (stripped.startswith("<!--") and stripped.endswith("-->"))):
-            end = j
-            break
+    end = _section_end(lines, fenced, i)
     section.end = end
     count = 0
     for j in range(i + 1, end):
         line = lines[j].rstrip()
-        if not fenced[j] and _OTHER_MARKER.match(line):
-            section.issues.append("line %d: use `- ` for a map bullet (`*`, `+` and `-` followed by a tab "
-                                  "are not supported)" % (j + 1))
+        if fenced[j]:
             continue
-        if fenced[j] or not line.startswith("- "):
+        if not line.startswith("- "):
+            if _LIST_ITEM.match(line):
+                section.issues.append("line %d: use `- ` at the start of the line for a map bullet (`*`, `+`, "
+                                      "`-` plus a tab, numbered and indented items are not supported)" % (j + 1))
             continue
         count += 1
         head = _BULLET_HEAD.match(line)
@@ -179,27 +188,28 @@ def usable_map(path):
     return section if section is not None and section.usable else None
 
 
-_BACKTICKED = re.compile(r"`[^`]*`")
-
-
 def mask_pointers(text):
-    """The text with every backticked span of every map bullet removed, valid map or not.
+    """The text with the pointer and symbol of every map list item removed, valid map or not.
 
     Other scans (wikilinks, links, release tags) must not read pointer paths: `src/[[helper]].py`
-    or a tag-like path is a path, not a link or a release. Line numbers are preserved."""
+    or a tag-like path is a path, not a link or a release. Role text stays visible. An unclosed
+    pointer prefix is masked to the end of its line. Sections are bounded exactly as the parser
+    bounds them, and line numbers are preserved."""
     lines = text.split("\n")
     fenced = _fenced_lines([l.rstrip("\r") for l in lines])
     markers = [i for i, l in enumerate(lines) if not fenced[i] and l.strip() == MAP_MARKER]
     if not markers:
         return text
     for m in markers:
-        for j in range(m + 1, len(lines)):
-            if fenced[j]:
-                continue
-            if j > m + 1 and (_H2.match(lines[j]) or lines[j].strip() == MAP_MARKER):
-                break
-            if re.match(r"^(?:[-*+](?:[ \t]|$))", lines[j]):
-                lines[j] = _BACKTICKED.sub("", lines[j])
+        start = m
+        k = m + 1
+        while k < len(lines) and not lines[k].strip():
+            k += 1
+        if k < len(lines) and not fenced[k] and _HEADING.match(lines[k].rstrip("\r")):
+            start = k
+        for j in range(start + 1, _section_end(lines, fenced, start)):
+            if not fenced[j]:
+                lines[j] = _POINTER_SPAN.sub(lambda mo: mo.group("lead"), lines[j], count=1)
     return "\n".join(lines)
 
 
@@ -216,6 +226,9 @@ def _page_file(root, cfg, name):
     real = os.path.realpath(path)
     if os.path.dirname(real) != wiki or not os.path.isfile(real):
         return None
+    # Same eligibility as the wiki's topic inventory: no MEMORY.md, index.md or index-*.md.
+    if name not in {os.path.basename(p) for p in wl.page_files(root, cfg)}:
+        return None
     return path
 
 
@@ -231,23 +244,31 @@ def map_for_page(root, cfg, name):
     return section if section is not None and section.usable else None
 
 
-def blob_at(git, commit, tree_path):
+class GitError(Exception):
+    """A Git read failed (not "the file is absent"); only raised when blob_at is called strict."""
+
+
+def blob_at(git, commit, tree_path, strict=False):
     """Object id of the regular file at `commit:tree_path`, else None.
 
     A directory, symlink or submodule is not a file. `tree_path` is relative to the Git top level
-    (use `git.project_path`)."""
+    (use `git.project_path`). With `strict`, a failing `git ls-tree` raises GitError instead of
+    reading as "not a file"."""
     key = ("blob", commit, tree_path)
     if key not in git._cache:
         found = None
         rc, out = git.run("ls-tree", "--full-tree", "-z", commit, "--", tree_path)
-        if rc == 0:
-            for record in out.split("\0"):
-                meta, _, name = record.partition("\t")
-                if name == tree_path:
-                    parts = meta.split()
-                    if len(parts) == 3 and parts[1] == "blob" and parts[0] in FILE_MODES:
-                        found = parts[2]
-                    break
+        if rc != 0 and strict:
+            raise GitError("git ls-tree failed (exit %d) for %s:%s" % (rc, commit[:12], tree_path))
+        if rc != 0:
+            return None     # a failure is not cached, so a later strict call still sees it
+        for record in out.split("\0"):
+            meta, _, name = record.partition("\t")
+            if name == tree_path:
+                parts = meta.split()
+                if len(parts) == 3 and parts[1] == "blob" and parts[0] in FILE_MODES:
+                    found = parts[2]
+                break
         git._cache[key] = found
     return git._cache[key]
 
