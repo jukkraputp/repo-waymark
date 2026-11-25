@@ -2,6 +2,8 @@
 
 Keep repository status in Markdown and find it from Claude Code or the command line. A dated **Current status** block records decisions, code, merges, tests, publication, and next steps. Waymark generates the topic's index entry and updates its existing front-matter description from that block. The audit checks the wiki's structure and compares cited evidence with local Git data.
 
+In a benchmark on one private app, agents answering status questions covered by the wiki cost 33% less and found 78% of the required facts instead of 57%. Other questions showed no measurable effect. [Details](#benchmark)
+
 ## Install
 
 Use Python 3.9 or later with `python3` on your PATH. The scripts use the Python standard library. Install Git for repository evidence checks and install Claude Code to use the plugin. macOS and Linux are supported. Windows is untested.
