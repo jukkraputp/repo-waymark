@@ -182,6 +182,51 @@ Root resolution uses `--root` first, then `WAYMARK_ROOT`. Without an override, d
 | `WAYMARK_HOOK_ENTRY_CHARS` | `160` characters per plain index preview. |
 | `WAYMARK_HOOK_STATUS_CHARS` | `220` characters per status preview. The preview shows the date and only the status fields whose value is not `unknown`, `n/a` or `none`. |
 
+## Benchmark
+
+We measured whether a Waymark wiki helps a coding agent answer questions about a real repository, and what it costs when it doesn't help. Measured November 2026 with version 0.1.6.
+
+**Setup.** We used a private production Flutter app (about 1,300 Dart files and 6,600 commits) in two clones at the same commit. The only difference was the wiki:
+
+- **No wiki:** the repository as it is.
+- **Wiki:** the same commit plus a vendored Waymark install. It added 9 topic pages and 2 category indexes, a short section in `CLAUDE.md`, and the project hooks.
+
+Each question ran in a fresh headless Claude Code session (`claude -p`) on Claude Sonnet 5.5. Each session could read files and run shell commands. Writes, network access and paths outside the clone were blocked, and each session had a 25 tool-call budget. Questions were asked 3 times per arm, 108 runs per round. gpt-6.2-sol graded every answer against a private answer key, without being told which arm produced it. Answers are graded correct, partly correct or wrong, and scored on the share of required facts they state. Cost is the per-run cost Claude Code reports.
+
+The 18 questions come in three kinds:
+
+- **Covered (10):** "is X merged, released, tested?" about work that has a wiki page. Three of the nine pages had known errors: one was stale and two omitted or misstated where a change was released.
+- **No page (4):** the same kind of status question about work the wiki does not cover.
+- **Code (4):** plain questions about the code, such as where the HTTP client adds the auth header or which SDK version is pinned.
+
+**Results:**
+
+| Questions | Mean cost per run, no wiki → wiki | Required facts found | Correct / partly correct / wrong |
+|---|---|---|---|
+| Covered (30 runs per arm) | $0.076 → $0.051 (**−33%**) | **57% → 78%** | 3/21/6 → 5/21/4 |
+| No page (12 runs per arm) | $0.045 → $0.046 (0%) | 54% → 54% | 0/12/0 → 0/12/0 |
+| Code (12 runs per arm) | $0.064 → $0.078 (+22%, noise; see below) | 95% → 90% | 9/2/1 → 7/5/0 |
+| All (54 runs per arm) | $0.067 → $0.056 (**−16%**) | 65% → 75% | 12/35/7 → 12/38/4 |
+
+With the wiki, agents also used 11% fewer output tokens and 0.8 fewer tool calls, and finished 3.6 s sooner per run.
+
+What we learned:
+
+- **Covered questions:** the wiki pays off here. All ten covered questions cost less or the same, and one went from 0/3 to 3/3 correct.
+- **Other questions:** on status questions without a page, the wiki neither helped nor hurt.
+- **Code questions:** no measurable overhead. Across three rounds the wiki arm's code-question cost came out −13%, +22% and −21% against the no-wiki arm. The hook added at most about 350 characters to these prompts.
+- **Pages with errors:** on the three questions whose pages had errors, the wiki arm found more of the required facts on average (36% → 61%), and both arms had 4 of 9 answers graded wrong. One wiki-arm answer repeated a page's misleading release claim. Keep Current status blocks accurate, and treat them as evidence to check against Git.
+- **Restricted shell inflates the gap.** In a first round with a narrow shell allow-list, most agents couldn't run the Git checks that answer status questions. That round showed a −34% cost gap and a 23% → 76% facts gap on covered questions. Benchmark with the shell access your agents really have.
+
+**Caveats.**
+
+- One repository, one model, and 3 runs per question.
+- The tool's author wrote the questions and the answer key, knowing which pages existed.
+- An LLM grader isn't fully blind: answers from the wiki arm often mention the wiki.
+- The code rows depend on the repository's other agent instructions. A separate rule there, which sent agents to look for a missing diagrams folder, cost about one tool call per run in both arms.
+
+The questions, transcripts and answer key stay private because they describe a private codebase.
+
 ## Limits
 
 - The wiki uses top-level Markdown topic files and category indexes named `index-*.md`. Plain indexed pages are searchable. Pages with the status marker opt in to status validation and synchronization.
