@@ -26,7 +26,7 @@ claude --plugin-dir /path/to/repo-waymark
 
 ## Try the example wiki
 
-Run this block from a local repo-waymark checkout. It copies [the example wiki](templates/example-wiki/) into a temporary project, syncs its index, and runs a lookup and audit. The example page ends with a sample "Where to look" map, which the lookup prints.
+Run this block from a local repo-waymark checkout. It copies [the example wiki](templates/example-wiki/) into a temporary project, syncs its index, and runs a lookup and audit. The example page ends with a sample "Where to look" map, which the lookup prints. The second half commits a synthetic source file in the temporary repository, points `main_ref` at its local `main`, records the real commit as evidence, and runs the audit with Git, so the map's pointer and symbol are checked and the audit reports no warnings.
 
 ```sh
 waymark="$PWD"
@@ -36,6 +36,17 @@ python3 "$waymark/scripts/status.py" --root "$project" sync
 python3 "$waymark/scripts/status.py" --root "$project" check
 python3 "$waymark/scripts/lookup.py" --root "$project" "example topic"
 python3 "$waymark/scripts/audit.py" --root "$project" --no-git
+
+# Git-backed audit: commit a synthetic source file, use a local main_ref, and record real evidence.
+mkdir "$project/src" && printf 'def example():\n    return 1\n' > "$project/src/example.py"
+sed 's|"origin/main"|"main"|' "$project/.repo-waymark.json" > "$project/config.tmp" && mv "$project/config.tmp" "$project/.repo-waymark.json"
+git -C "$project" init -q -b main
+git -C "$project" add -A
+git -C "$project" -c user.name=Example -c user.email=example@example.invalid commit -q -m "Add the example"
+page="$project/.claude/memory/example-topic.md"
+sed "s|2026-01-01 · checked at \`1abc234\` (illustrative placeholder; replace after checking)|$(date +%F) · checked at \`$(git -C "$project" rev-parse --short HEAD)\` (\`main\`)|" "$page" > "$page.tmp" && mv "$page.tmp" "$page"
+python3 "$waymark/scripts/status.py" --root "$project" sync
+python3 "$waymark/scripts/audit.py" --root "$project" --strict
 ```
 
 When adopting the template, copy its files into a fresh project or merge them into your existing wiki and configuration. Before running the Git-backed audit, replace the sample `As of` date with today's date (`date +%F`) and the placeholder SHA with a real commit from the project (`git rev-parse --short HEAD` if you checked `HEAD`). Remove the illustrative placeholder note, record your own evidence, and run `status.py sync` before auditing.
@@ -93,8 +104,8 @@ python3 /path/to/repo-waymark/scripts/lookup.py --root /path/to/project "example
 | `python3 scripts/status.py [--root DIR] sync [page.md …]` | Update linked index lines and existing front-matter descriptions for the named pages, or all opted-in pages. |
 | `python3 scripts/status.py [--root DIR] template` | Print a status page skeleton, including configured extra fields. |
 | `python3 scripts/lookup.py [--root DIR] [OPTIONS] QUERY` | Rank matching wiki entries and find exact identifiers in page bodies. |
-| `python3 scripts/map.py template` | Print an empty "Where to look" map section. |
-| `python3 scripts/map.py [--root DIR] suggest [--ref REF] [--max N] TERM...` | Find commits on `main_ref` (or `--ref`) whose message contains any TERM (fixed string, case-insensitive), diff each against its first parent, and print the most-touched files as map bullets with a `TODO` role, then the commits used. `--commits SHA...` replaces the search; `--branch REF` lists the files a branch changes as `REF:path`. Exit `1` when nothing matches, `2` on usage or Git errors. Read-only. |
+| `python3 scripts/map.py template` | Print a page skeleton: an H1 placeholder, an About line, the "Where to look" section, and the index line to add. |
+| `python3 scripts/map.py [--root DIR] suggest [--ref REF] [--max N] [--] TERM...` | Find commits on `main_ref` (or `--ref`) whose message contains any TERM (fixed string, case-insensitive; one `git log`, at most 200 commits in total), diff each against its first parent, and print the most-touched files as map bullets with a `TODO` role, then the commits used. With a `--ref` other than `main_ref`, pointers are written `REF:path`. `--commit SHA` (repeatable) replaces the search; `--branch REF` lists the files a branch changes as `REF:path`. Shallow-clone boundary commits are skipped with a note. Exit `1` when nothing matches, `2` on usage or Git errors. Read-only. |
 | `python3 scripts/audit.py [--root DIR] [--strict] [--no-git]` | Check wiki links, status blocks, and Git evidence. `--strict` makes warnings fail the audit. `--no-git` skips Git checks. |
 | `python3 scripts/prompt_hook.py [--root DIR] [PROMPT]` | Preview hook output. Pass prompt words as arguments, or send a JSON object with a `prompt` field or plain prompt text on stdin. |
 

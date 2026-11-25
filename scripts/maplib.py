@@ -27,6 +27,8 @@ FILE_MODES = ("100644", "100755")
 
 _FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
 _BULLET_HEAD = re.compile(r"^- (?P<trap>Trap: )?`(?P<pointer>[^`]+)`(?: `(?P<symbol>[^`]+)`)?(?P<rest>.*)$")
+_H2 = re.compile(r"^ {0,3}##(?: |\t|$)")
+_OTHER_MARKER = re.compile(r"^(?:[*+](?:[ \t]|$)|-\t)")
 _ROLE = re.compile(r"^ — (?P<role>\S.*)$")
 _LINE_SUFFIX = re.compile(r":\d+(?:-\d+)?$")
 _SYMBOL_SPLIT = re.compile(r"\.|::|#")
@@ -63,6 +65,8 @@ def _fenced_lines(lines):
     for line in lines:
         m = _FENCE.match(line)
         if fence is None:
+            if m and m.group(1)[0] == "`" and "`" in line[m.end():]:
+                m = None   # CommonMark: a backtick fence's info string may not contain a backtick
             flags.append(bool(m))
             if m:
                 fence = m.group(1)
@@ -124,7 +128,7 @@ def parse_map(text):
     end = len(lines)
     for j in range(i + 1, len(lines)):
         stripped = lines[j].strip()
-        if not fenced[j] and (lines[j].startswith("## ")
+        if not fenced[j] and (_H2.match(lines[j])
                               or (stripped.startswith("<!--") and stripped.endswith("-->"))):
             end = j
             break
@@ -132,6 +136,10 @@ def parse_map(text):
     count = 0
     for j in range(i + 1, end):
         line = lines[j].rstrip()
+        if not fenced[j] and _OTHER_MARKER.match(line):
+            section.issues.append("line %d: use `- ` for a map bullet (`*`, `+` and `-` followed by a tab "
+                                  "are not supported)" % (j + 1))
+            continue
         if fenced[j] or not line.startswith("- "):
             continue
         count += 1
@@ -171,15 +179,56 @@ def usable_map(path):
     return section if section is not None and section.usable else None
 
 
-def strip_pointers(text):
-    """The text with each map pointer removed, so other scans (release tags) do not read it."""
-    section = parse_map(text)
-    if section is None or not section.entries:
-        return text
+_BACKTICKED = re.compile(r"`[^`]*`")
+
+
+def mask_pointers(text):
+    """The text with every backticked span of every map bullet removed, valid map or not.
+
+    Other scans (wikilinks, links, release tags) must not read pointer paths: `src/[[helper]].py`
+    or a tag-like path is a path, not a link or a release. Line numbers are preserved."""
     lines = text.split("\n")
-    for entry in section.entries:
-        lines[entry.lineno - 1] = lines[entry.lineno - 1].replace("`%s`" % entry.pointer, "", 1)
+    fenced = _fenced_lines([l.rstrip("\r") for l in lines])
+    markers = [i for i, l in enumerate(lines) if not fenced[i] and l.strip() == MAP_MARKER]
+    if not markers:
+        return text
+    for m in markers:
+        for j in range(m + 1, len(lines)):
+            if fenced[j]:
+                continue
+            if j > m + 1 and (_H2.match(lines[j]) or lines[j].strip() == MAP_MARKER):
+                break
+            if re.match(r"^(?:[-*+](?:[ \t]|$))", lines[j]):
+                lines[j] = _BACKTICKED.sub("", lines[j])
     return "\n".join(lines)
+
+
+strip_pointers = mask_pointers
+
+
+def _page_file(root, cfg, name):
+    """Absolute path of a plain top-level topic file inside the wiki directory, else None."""
+    if not isinstance(name, str) or not name.endswith(".md") or name != os.path.basename(name) \
+            or name in (".md", "..md") or "\0" in name:
+        return None
+    wiki = os.path.realpath(wl.wiki_dir(root, cfg))
+    path = os.path.join(wiki, name)
+    real = os.path.realpath(path)
+    if os.path.dirname(real) != wiki or not os.path.isfile(real):
+        return None
+    return path
+
+
+def parsed_map_for_page(root, cfg, name):
+    """The parsed map of a top-level topic page (valid or not), or None. Never reads outside the wiki."""
+    path = _page_file(root, cfg, name)
+    return load_map(path) if path else None
+
+
+def map_for_page(root, cfg, name):
+    """The valid, non-empty map of a top-level topic page, or None. Shared by lookup and the hook."""
+    section = parsed_map_for_page(root, cfg, name)
+    return section if section is not None and section.usable else None
 
 
 def blob_at(git, commit, tree_path):

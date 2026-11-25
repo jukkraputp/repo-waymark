@@ -72,7 +72,7 @@ def missing_link_code(root, wiki_dir, pagedir, target):
 
 
 def check_status_paths(root, pg, git, findings):
-    block = pg.block_text()
+    block = maplib.mask_pointers(pg.block_text())
     pagedir = os.path.dirname(pg.path)
     wiki_dir = wl.wiki_dir(root, pg.config)
     for target in MDLINK.findall(block):
@@ -318,11 +318,7 @@ def check_status_page(root, pg, git, findings, today):
 
 def check_map_page(root, name, config, git, findings):
     """Map checks run on every topic page that has a map section, status block or not."""
-    try:
-        text, _ = wl.read_raw(os.path.join(wl.wiki_dir(root, config), name))
-    except OSError:
-        return
-    section = maplib.parse_map(text)
+    section = maplib.parsed_map_for_page(root, config, name)
     if section is None:
         return
     for code, msg in maplib.audit_section(section, git, config["main_ref"]):
@@ -335,7 +331,7 @@ def global_checks(root, config, pages, git, findings):
     cited_tags = collections.defaultdict(set)
     wiki_dir = wl.wiki_dir(root, config)
     for p in pages:
-        txt = wl.read(os.path.join(wiki_dir, p))
+        txt = maplib.mask_pointers(wl.read(os.path.join(wiki_dir, p)))
         for target in MDLINK.findall(txt):
             path = strip_loc(target)
             if not path or EXTERNAL_LINK.match(path) or path.startswith("/") or any(c in path for c in "<{$*"):
@@ -343,7 +339,7 @@ def global_checks(root, config, pages, git, findings):
             if missing_link_code(root, wiki_dir, wiki_dir, path):
                 findings.warn("G1", p, "broken relative link: %s" % target)
         if release_tags:
-            for match in release_tags.finditer(maplib.strip_pointers(txt)):
+            for match in release_tags.finditer(txt):
                 if match.group():
                     cited_tags[match.group()].add(p)
     if cited_tags:
@@ -408,7 +404,7 @@ def main(argv) -> int:
     where: dict = collections.defaultdict(set)
     for p in sorted(pages):
         txt = read_audit_text(os.path.join(wiki_dir, p), findings)
-        for link in WIKILINK.findall(txt):
+        for link in WIKILINK.findall(maplib.mask_pointers(txt)):
             if link + ".md" not in pages:
                 broken[link] += 1
                 where[link].add(p)

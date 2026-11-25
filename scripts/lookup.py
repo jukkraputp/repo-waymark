@@ -141,7 +141,7 @@ def main(argv):
         return wl.status_page(root, name, expect_status=name in indexed, cfg=cfg)
 
     def page_map(name):
-        return maplib.usable_map(os.path.join(wl.wiki_dir(root, cfg), name))
+        return maplib.map_for_page(root, cfg, name)
 
     map_slots = 3 if opts["blocks"] == "top" else len(top)
     if opts["json"]:
@@ -161,11 +161,10 @@ def main(argv):
                         branch = branch_view(root, pg)
                         if branch:
                             d["branch"] = branch
-            section = page_map(e.page) if e.page and map_slots > 0 else None
+            section = page_map(e.page) if e.page else None
             if section:
-                d["map"] = [{"pointer": m.pointer, "symbol": m.symbol, "role": m.role, "trap": m.trap}
-                            for m in section.entries]
-                map_slots -= 1 if opts["blocks"] == "top" else 0
+                d["map"] = [{"pointer": m.pointer, "path": m.path, "ref": m.ref, "symbol": m.symbol,
+                             "role": m.role, "trap": m.trap} for m in section.entries]
             res["hits"].append(d)
         for t, rows in bodies.items():
             res["body"][t] = []
@@ -186,6 +185,10 @@ def main(argv):
         match = ", ".join(h.kws + h.idents)
         page_path = wl.wiki_path(root, e.page or "", cfg)
         print("%d. %s — %s  (%s; matched: %s)" % (n, e.title, page_path, e.cat, match))
+        section = page_map(e.page) if e.page and map_slots > 0 else None
+        if section:
+            print_map(section)
+            map_slots -= 1 if opts["blocks"] == "top" else 0
         pg = status_page(e.page)
         if pg and pg.status_error:
             print("   " + pg.status_error)
@@ -198,10 +201,6 @@ def main(argv):
         else:
             txt = e.line[wl.INDEX_LINE.match(e.line).end():].strip() if e.page else e.line
             print("   index line: " + (txt[:300] + ("…" if len(txt) > 300 else "")))
-        section = page_map(e.page) if e.page and map_slots > 0 else None
-        if section:
-            print_map(section)
-            map_slots -= 1 if opts["blocks"] == "top" else 0
     if any(bodies.values()):
         printed = True
         print("Identifier matches in page bodies:")

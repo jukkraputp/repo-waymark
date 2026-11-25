@@ -24,4 +24,4 @@
 <!-- wiki-map v1 -->
 ## Where to look
 
-- `.repo-waymark.json` — the wiki's configuration; replace this sample with files in your project
+- `src/example.py` `example` — the sample entry point; replace this with files in your project

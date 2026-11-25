@@ -107,7 +107,7 @@ def _where_lines(root, cfg, page):
     """Up to MAX_WHERE_PER_HIT escaped `where:`/`trap:` lines from the page's valid map, in map order."""
     if not page:
         return []
-    section = maplib.usable_map(os.path.join(wl.wiki_dir(root, cfg), page))
+    section = maplib.map_for_page(root, cfg, page)
     if section is None:
         return []
     lines = []
@@ -232,9 +232,10 @@ def main():
             if optional:
                 # Whole lines only: one that misses the shared where budget or the output budget is
                 # dropped, never cut, and a later shorter one may still fit.
-                if len(line) > where_left or len(line) > remaining:
+                cost = len(line) + 1   # the line and its newline
+                if cost > where_left or len(line) > remaining:
                     continue
-                where_left -= len(line)
+                where_left -= cost
                 prefix += line + "\n"
                 continue
             prefix += _cap(line, remaining) + "\n"
