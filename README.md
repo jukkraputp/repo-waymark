@@ -208,6 +208,8 @@ The 18 questions come in three kinds:
 | Code (12 runs per arm) | $0.064 → $0.078 (+22%, noise; see below) | 95% → 90% | 9/2/1 → 7/5/0 |
 | All (54 runs per arm) | $0.067 → $0.056 (**−16%**) | 65% → 75% | 12/35/7 → 12/38/4 |
 
+A follow-up round ran only the code questions, with 20 runs per arm, after fixing an unrelated rule in the app's own agent instructions (see the last caveat). There, cost was $0.062 → $0.049 per run and required facts 95% → 100%.
+
 With the wiki, agents also used 11% fewer output tokens and 0.8 fewer tool calls, and finished 3.6 s sooner per run.
 
 What we learned:
