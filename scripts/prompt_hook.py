@@ -100,26 +100,24 @@ def _show(e, page, root, cfg, entry_chars, status_chars):
     return _cap(_escape_markup(text), status_chars)
 
 
-def _where_line(root, cfg, page, chars):
-    """'where: `ptr` `sym` — role; …; Trap: …' from the page's valid map, or None.
+MAX_WHERE_PER_HIT = 3
 
-    Pointers come first, traps last. Whole entries are dropped, never cut, to fit `chars`."""
-    if chars <= 0 or not page:
-        return None
+
+def _where_lines(root, cfg, page):
+    """Up to MAX_WHERE_PER_HIT escaped `where:`/`trap:` lines from the page's valid map, in map order."""
+    if not page:
+        return []
     section = maplib.usable_map(os.path.join(wl.wiki_dir(root, cfg), page))
     if section is None:
-        return None
-    ordered = sorted(section.entries, key=lambda e: e.trap)
-    parts = []
-    for e in ordered:
-        part = "%s`%s`%s — %s" % ("Trap: " if e.trap else "", e.pointer,
-                                  " `%s`" % e.symbol if e.symbol else "", e.role)
-        if len("where: " + "; ".join(parts + [part])) > chars:
-            if not parts:
-                parts.append(_cap(part, max(0, chars - len("where: "))))
-            break
-        parts.append(part)
-    return _escape_markup("  where: " + "; ".join(parts)) if parts else None
+        return []
+    lines = []
+    for e in section.entries[:MAX_WHERE_PER_HIT]:
+        if e.trap:
+            text = "  trap: `%s` — %s" % (e.pointer, e.role)
+        else:
+            text = "  where: `%s`%s — %s" % (e.pointer, " `%s`" % e.symbol if e.symbol else "", e.role)
+        lines.append(_escape_markup(text))
+    return lines
 
 
 def _is_harness_envelope(text):
@@ -218,21 +216,27 @@ def main():
         out = [OPENING, HEADER]
         budget = OUTPUT_CHARS - len(CLOSING) - 1
         prefix = _cap("\n".join(out), budget - 1) + "\n"
-        where_chars = _env_int("WHERE_CHARS", 160)
+        where_left = _env_int("WHERE_CHARS", 320)
 
         def previews():
             for h in shown:
                 yield "- " + _show(h.entry, status_page(h.entry.page), root, cfg, entry_chars, status_chars), False
-                where = _where_line(root, cfg, h.entry.page, where_chars)
-                if where:
-                    yield where, True
+                if where_left > 0:
+                    for where in _where_lines(root, cfg, h.entry.page):
+                        yield where, True
 
         for line, optional in chain(previews(), ((b, False) for b in body_lines)):
             remaining = budget - len(prefix) - 1
             if remaining <= 0:
                 break
-            if optional and len(line) > remaining:
-                continue   # a where line is whole or absent; a later, shorter one may still fit
+            if optional:
+                # Whole lines only: one that misses the shared where budget or the output budget is
+                # dropped, never cut, and a later shorter one may still fit.
+                if len(line) > where_left or len(line) > remaining:
+                    continue
+                where_left -= len(line)
+                prefix += line + "\n"
+                continue
             prefix += _cap(line, remaining) + "\n"
         print(prefix + CLOSING)
     except Exception:

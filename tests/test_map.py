@@ -202,33 +202,80 @@ class LookupMap(unittest.TestCase):
 
 
 class HookMap(unittest.TestCase):
+    TRAP_FIRST = """<!-- wiki-map v1 -->
+## Where to look
+
+- Trap: `lib/old.py` — legacy
+- `lib/a.py` `A.run` — first
+- `lib/b.py` — second
+- `lib/c.py` — fourth, over the cap
+"""
+
     def setUp(self):
         d = tempfile.TemporaryDirectory()
         self.addCleanup(d.cleanup)
         self.root = d.name
-        make_wiki(self.root, {"topic.md": "# Topic\n\n" + MAP},
-                  "- [Topic](topic.md) — zebrafish quagga\n- [Other](other.md) — zebrafish quagga\n")
-        (Path(self.root) / WIKI_DIR / "other.md").write_text("# Other\n")
+
+    def wiki(self, pages):
+        files = {n + ".md": text for n, text in pages.items()}
+        make_wiki(self.root, files, "".join("- [%s](%s) — zebrafish quagga\n" % (n[:-3], n) for n in sorted(files)))
+        return pages
 
     def hook(self, **env):
-        return run_tool("prompt_hook.py", "zebrafish quagga", cwd=self.root, WAYMARK_ROOT=self.root, **env).stdout
+        r = run_tool("prompt_hook.py", "zebrafish quagga", cwd=self.root, WAYMARK_ROOT=self.root, **env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return r.stdout
 
-    def test_where_line(self):
-        out = self.hook()
-        self.assertIn("  where: `lib/app.py` `App.start` — entry point;", out)
-        self.assertIn("Trap: `lib/old.py` — legacy; use `lib/app.py`", out)
-        self.assertLess(out.index("`feat:lib/new.py`"), out.index("Trap:"))
+    def lines(self, out, prefix=("  where:", "  trap:")):
+        return [l for l in out.split("\n") if l.startswith(prefix)]
 
-    def test_where_chars_zero_disables(self):
-        self.assertNotIn("where:", self.hook(WAYMARK_HOOK_WHERE_CHARS=0))
+    def test_map_order_kept_traps_included_and_cap_three(self):
+        self.wiki({"t": "# T\n\n" + self.TRAP_FIRST})
+        got = self.lines(self.hook())
+        self.assertEqual(got, ["  trap: `lib/old.py` — legacy",
+                               "  where: `lib/a.py` `A.run` — first",
+                               "  where: `lib/b.py` — second"])
 
-    def test_where_chars_drops_whole_entries(self):
-        out = self.hook(WAYMARK_HOOK_WHERE_CHARS=60)
-        self.assertIn("where: `lib/app.py` `App.start` — entry point", out)
-        self.assertNotIn("Trap:", out)
+    def test_shared_budget_drops_later_lines_whole(self):
+        pages = {n: "# T\n\n<!-- wiki-map v1 -->\n## Where to look\n\n- `lib/%s.py` — role %s\n" % (n, n)
+                 for n in ("a", "b", "c")}
+        self.wiki(pages)
+        one = len("  where: `lib/a.py` — role a")
+        got = self.lines(self.hook(WAYMARK_HOOK_WHERE_CHARS=2 * one))
+        self.assertEqual(len(got), 2, got)
+        for l in got:
+            self.assertEqual(len(l), one)
+        self.assertEqual(len(self.lines(self.hook(WAYMARK_HOOK_WHERE_CHARS=2 * one - 1))), 1)
+        self.assertEqual(len(self.lines(self.hook())), 3)
+
+    def test_no_line_is_ever_cut(self):
+        self.wiki({"t": "# T\n\n<!-- wiki-map v1 -->\n## Where to look\n\n- `lib/a.py` — %s\n" % ("long " * 20)})
+        self.assertEqual(self.lines(self.hook(WAYMARK_HOOK_WHERE_CHARS=40)), [])
+        full = self.lines(self.hook())
+        self.assertEqual(len(full), 1)
+        self.assertTrue(full[0].endswith("long"), full[0])
+        self.assertNotIn("…", full[0])
+
+    def test_escaping_counts_toward_the_budget(self):
+        self.wiki({"t": "# T\n\n<!-- wiki-map v1 -->\n## Where to look\n\n- `lib/a.py` — <b>x</b>\n"})
+        raw = len("  where: `lib/a.py` — <b>x</b>")
+        escaped = raw + 4 * 3   # four angle brackets, each grows by 3 characters
+        self.assertEqual(self.lines(self.hook(WAYMARK_HOOK_WHERE_CHARS=escaped - 1)), [])
+        got = self.lines(self.hook(WAYMARK_HOOK_WHERE_CHARS=escaped))
+        self.assertEqual(len(got), 1)
+        self.assertNotIn("<b>", got[0])
+        self.assertIn("&lt;b&gt;", got[0])
+
+    def test_zero_disables_and_pages_without_maps_are_unchanged(self):
+        self.wiki({"t": "# T\n\n" + self.TRAP_FIRST, "u": "# U\n\nplain\n"})
+        off = self.hook(WAYMARK_HOOK_WHERE_CHARS=0)
+        self.assertEqual(self.lines(off), [])
+        self.wiki({"t": "# T\n\nplain\n", "u": "# U\n\nplain\n"})
+        self.assertEqual(self.hook(), self.hook(WAYMARK_HOOK_WHERE_CHARS=0))
+        self.assertNotIn("where:", self.hook())
 
     def test_invalid_map_gives_no_where_line(self):
-        (Path(self.root) / WIKI_DIR / "topic.md").write_text("# T\n\n<!-- wiki-map v1 -->\n- bad\n")
+        self.wiki({"t": "# T\n\n<!-- wiki-map v1 -->\n- bad\n"})
         self.assertNotIn("where:", self.hook())
 
 

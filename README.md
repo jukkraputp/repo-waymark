@@ -186,7 +186,7 @@ Root resolution uses `--root` first, then `WAYMARK_ROOT`. Without an override, d
 | `WAYMARK_HOOK_MAX_DF` | `0.03`: a keyword on more than this share of index lines (and on more than 3 lines) is common. A word-only hit also needs one keyword that is not common. |
 | `WAYMARK_HOOK_MAX_HITS` | `3` index matches shown by the hook. |
 | `WAYMARK_HOOK_ENTRY_CHARS` | `160` characters per plain index preview. |
-| `WAYMARK_HOOK_WHERE_CHARS` | `160` characters for the `where:` line the hook adds under a hit whose page has a valid map; whole entries are dropped to fit, `0` turns the line off. |
+| `WAYMARK_HOOK_WHERE_CHARS` | `320` characters in total, for the whole prompt, for the map lines the hook adds under hits whose pages have a valid map: up to 3 per hit, in the map's order, as `  where: \`path\` \`Symbol\` — role` or `  trap: \`path\` — role`. A line that does not fit the remaining budget is dropped whole, never cut. `0` turns them off. |
 | `WAYMARK_HOOK_STATUS_CHARS` | `220` characters per status preview. The preview shows the date and only the status fields whose value is not `unknown`, `n/a` or `none`. |
 
 ## Benchmark
