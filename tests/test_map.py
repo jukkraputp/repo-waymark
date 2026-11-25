@@ -232,5 +232,61 @@ class HookMap(unittest.TestCase):
         self.assertNotIn("where:", self.hook())
 
 
+@unittest.skipUnless(shutil.which("git"), "Git is required")
+class MapTool(unittest.TestCase):
+    def setUp(self):
+        d = tempfile.TemporaryDirectory()
+        self.addCleanup(d.cleanup)
+        self.root = Path(d.name)
+        init_git(self.root)
+        write_config(self.root, main_ref="main")
+        (self.root / "lib").mkdir()
+        for i in range(3):
+            (self.root / "lib/hot.py").write_text("v%d\n" % i)
+            (self.root / "lib/cold.py").write_text("c\n")
+            git(self.root, "add", ".")
+            git(self.root, "commit", "--quiet", "-m", "c%d" % i)
+        git(self.root, "checkout", "--quiet", "-b", "feat")
+        (self.root / "lib/new.py").write_text("n\n")
+        git(self.root, "add", ".")
+        git(self.root, "commit", "--quiet", "-m", "feat")
+        git(self.root, "checkout", "--quiet", "main")
+
+    def run_map(self, *args, cwd=None):
+        return run_tool("map.py", *args, cwd=cwd or self.root)
+
+    def test_template_needs_no_wiki(self):
+        with tempfile.TemporaryDirectory() as empty:
+            r = self.run_map("template", cwd=empty)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue(maplib.parse_map(r.stdout.replace("path/to/", "x/")).usable)
+
+    def test_suggest_ranks_by_change_count(self):
+        r = self.run_map("suggest")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertLess(r.stdout.index("lib/hot.py"), r.stdout.index("lib/cold.py") if "lib/cold.py" in r.stdout else 10**9)
+        self.assertTrue(maplib.parse_map(r.stdout).usable)
+
+    def test_suggest_branch_uses_ref_pointers(self):
+        r = self.run_map("suggest", "--ref", "feat")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("`feat:lib/new.py`", r.stdout)
+        self.assertNotIn("hot.py", r.stdout)
+
+    def test_suggest_unrelated_history_uses_empty_tree(self):
+        git(self.root, "checkout", "--quiet", "--orphan", "other")
+        git(self.root, "rm", "-rfq", "--cached", ".")
+        (self.root / "solo.py").write_text("s\n")
+        git(self.root, "add", "solo.py")
+        git(self.root, "commit", "--quiet", "-m", "solo")
+        git(self.root, "checkout", "--quiet", "-f", "main")
+        r = self.run_map("suggest", "--ref", "other")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("`other:solo.py`", r.stdout)
+
+    def test_suggest_bad_ref_is_usage_error(self):
+        self.assertEqual(self.run_map("suggest", "--ref", "nope").returncode, 2)
+
+
 if __name__ == "__main__":
     unittest.main()
