@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.1.8]
+
+- Match conservative plural forms in index queries as a fallback when the original word has no prefix match, counting singular and plural forms of the same keyword once. The prompt hook remains index-based.
+- Lookup also searches non-trap map bullet roles, symbols and file basenames when index hits leave room, or with `--deep`, ranking matches by keyword rarity and listing them after index hits. Map scanning reads at most 2 MB of topic pages and skips incomplete pages.
+- Clarified that index keywords should include the words people use when searching.
+
 ## [0.1.7]
 
 - Added the optional "Where to look" map: a short list of pointers into the code at the end of any topic page, introduced by `<!-- wiki-map v1 -->` and `## Where to look` (one to twelve bullets: a backticked pointer, an optional backticked symbol, ` — role`, and a `Trap:` prefix for misleading files; `ref:path` for branch-only files). Lookup prints it for the top three hits (all with `--blocks all`, also in `--json`), and the prompt hook adds up to three indented lines under a hit in the map's own order (`  where: \`path\` \`Symbol\` — role`, or `  trap: \`path\` — role`), within one shared budget `WAYMARK_HOOK_WHERE_CHARS` (default `320`, `0` turns them off). A role is shortened to `WAYMARK_HOOK_WHERE_ROLE_CHARS` characters (default `90`, cut at a word boundary with `…`, `0` for none); a line that still does not fit is retried with the pointer and symbol only and then dropped. A pointer or symbol is never cut.

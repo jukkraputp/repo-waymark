@@ -9,23 +9,96 @@ keyword qualifies. For hits with a generated index entry and a valid opted-in st
 status is displayed from the source page. The page's `## History` may include superseded material.
 Identifier matches in page bodies (exact,
 case-insensitive) are listed with file:line.
+Map bullet keywords can fill unused result slots after the index hits.
 
 Flags: --max N (default 5) · --json · --blocks all|top (default top = blocks and Where to look maps for
 the top 3 hits that have them; all = every hit) · --branches (show a `Canonical copy` at its resolved commit via read-only `git show`)
-· --deep (when <3 index hits, also rank page bodies by keyword).
+· --deep (also show up to --max map matches, and rank page bodies by keyword when <3 index hits).
 Exit 0 when matches are found, 1 when there are no matches, and 2 on usage or configuration errors.
 """
 import argparse
 import json
+import math
 import os
 import re
 import shlex
 import sys
+from bisect import bisect_left
+from collections import Counter
 from functools import lru_cache
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import maplib  # noqa: E402
 import wikilib as wl  # noqa: E402
+
+MAX_MAP_SEARCH_BYTES = 2_000_000
+_ACRONYM_END = re.compile(r"([A-Z])([A-Z][a-z])")
+_CASE_CHANGE = re.compile(r"([a-z0-9])([A-Z])")
+
+
+def map_keywords(section):
+    words = set()
+    for entry in section.entries:
+        if entry.trap:
+            continue
+        words.update(wl.keywords(entry.role))
+        symbol = (entry.symbol or "").replace(".", " ").replace("_", " ")
+        symbol = _CASE_CHANGE.sub(r"\1 \2", _ACRONYM_END.sub(r"\1 \2", symbol))
+        words.update(wl.keywords(symbol))
+        basename = os.path.splitext(os.path.basename(entry.path))[0]
+        words.update(wl.keywords(basename.replace("_", " ")))
+    return sorted(words)
+
+
+def has_prefix(vocab, prefix):
+    i = bisect_left(vocab, prefix)
+    return i < len(vocab) and vocab[i].startswith(prefix)
+
+
+def map_matches(root, cfg, prefixes, excluded, limit):
+    """Rank usable maps by inverse frequency of matched keywords in the bounded scan."""
+    if limit <= 0 or not prefixes:
+        return []
+    remaining = MAX_MAP_SEARCH_BYTES
+    wiki = os.path.realpath(wl.wiki_dir(root, cfg))
+    marker = maplib.MAP_MARKER.encode("ascii")
+    candidates = []
+    frequencies = Counter()
+    for path in wl.page_files(root, cfg):
+        if remaining <= 0:
+            break
+        name = os.path.basename(path)
+        if name in excluded:
+            continue
+        real = os.path.realpath(path)
+        if os.path.dirname(real) != wiki or not os.path.isfile(real):
+            continue
+        try:
+            # Buffered reads can prefetch beyond the remaining physical-byte budget.
+            with open(real, "rb", buffering=0) as fh:
+                data = fh.read(remaining)
+                remaining -= len(data)
+                if remaining == 0 and os.fstat(fh.fileno()).st_size > len(data):
+                    break  # Never rank a partial page as a complete map.
+        except OSError:
+            continue
+        if marker not in data:
+            continue
+        page = data.decode("utf-8", errors="replace")
+        section = maplib.parse_map(page)
+        if not section or not section.usable:
+            continue
+        vocab = map_keywords(section)
+        matched = sorted(k for k, forms in prefixes.items() if any(has_prefix(vocab, f) for f in forms))
+        if matched:
+            heading = re.search(r"^# (.+)$", page, re.MULTILINE)
+            title = heading[1].strip() if heading else os.path.splitext(name)[0]
+            candidates.append((name, title, matched, section))
+            frequencies.update(matched)
+    matches = [(name, title, matched, section, math.fsum(1 / frequencies[k] for k in matched))
+               for name, title, matched, section in candidates]
+    matches.sort(key=lambda match: (-match[4], match[0]))
+    return matches[:limit]
 
 
 def parse_args(argv):
@@ -62,6 +135,11 @@ def print_map(section, indent="   "):
     print("%sWhere to look:" % indent)
     for entry in section.entries:
         print("%s  - %s" % (indent, map_lines(entry)))
+
+
+def map_json(section):
+    return [{"pointer": m.pointer, "path": m.path, "ref": m.ref, "symbol": m.symbol,
+             "role": m.role, "trap": m.trap} for m in section.entries]
 
 
 def branch_view(root, pg):
@@ -133,6 +211,8 @@ def main(argv):
     indexed = wl.indexed_status_pages(entries)
     hits, kws, idents = wl.search(entries, query, mode="cli")
     top = hits[:opts["max"]]
+    map_limit = opts["max"] if opts["deep"] else opts["max"] - len(top)
+    map_hits = map_matches(root, cfg, hits.query_prefixes, {h.entry.page for h in top}, map_limit)
     bodies = wl.body_search(root, [t for t in idents if wl.strong_shape(t)], cfg) if idents else {}
     deep = wl.body_score(root, kws, cfg=cfg) if (opts["deep"] and len(hits) < 3 and kws) else []
 
@@ -143,7 +223,7 @@ def main(argv):
     def page_map(name):
         return maplib.map_for_page(root, cfg, name)
 
-    map_slots = 3 if opts["blocks"] == "top" else len(top)
+    map_slots = 3 if opts["blocks"] == "top" else len(top) + len(map_hits)
     if opts["json"]:
         res = {"query": {"keywords": sorted(kws), "identifiers": idents}, "hits": [], "body": {}, "deep": deep}
         for h in top:
@@ -163,9 +243,11 @@ def main(argv):
                             d["branch"] = branch
             section = page_map(e.page) if e.page else None
             if section:
-                d["map"] = [{"pointer": m.pointer, "path": m.path, "ref": m.ref, "symbol": m.symbol,
-                             "role": m.role, "trap": m.trap} for m in section.entries]
+                d["map"] = map_json(section)
             res["hits"].append(d)
+        for name, title, matched, section, score in map_hits:
+            res["hits"].append({"title": title, "page": wl.wiki_path(root, name, cfg), "category": "map match",
+                                "matched": matched, "idents": [], "score": round(score, 3), "map": map_json(section)})
         for t, rows in bodies.items():
             res["body"][t] = []
             for p, c, n in rows[:10]:
@@ -175,10 +257,10 @@ def main(argv):
                     item["status_error"] = pg.status_error
                 res["body"][t].append(item)
         print(json.dumps(res, ensure_ascii=False, indent=1))
-        return 0 if (top or any(bodies.values()) or deep) else 1
+        return 0 if (top or map_hits or any(bodies.values()) or deep) else 1
 
     print("query: keywords=[%s] identifiers=[%s]" % (", ".join(sorted(kws)), ", ".join(idents)))
-    printed = bool(top)
+    printed = bool(top or map_hits)
     shown_blocks = 0
     for n, h in enumerate(top, 1):
         e = h.entry
@@ -201,6 +283,11 @@ def main(argv):
         else:
             txt = e.line[wl.INDEX_LINE.match(e.line).end():].strip() if e.page else e.line
             print("   index line: " + (txt[:300] + ("…" if len(txt) > 300 else "")))
+    for n, (name, title, matched, section, _) in enumerate(map_hits, len(top) + 1):
+        print("%d. %s — %s  (map match; matched: %s)" % (n, title, wl.wiki_path(root, name, cfg), ", ".join(matched)))
+        if map_slots > 0:
+            print_map(section)
+            map_slots -= 1
     if any(bodies.values()):
         printed = True
         print("Identifier matches in page bodies:")
