@@ -163,5 +163,43 @@ class AuditMap(unittest.TestCase):
             page.write_text(original)
 
 
+class LookupMap(unittest.TestCase):
+    def setUp(self):
+        d = tempfile.TemporaryDirectory()
+        self.addCleanup(d.cleanup)
+        self.root = d.name
+        pages, lines = {}, []
+        for i in range(5):
+            name = "topic%d.md" % i
+            pages[name] = "# Topic %d\n\nzebrafish%d\n\n" % (i, i) + MAP.replace("lib/app.py", "lib/p%d.py" % i)
+            lines.append("- [Topic %d](%s) — zebrafish quagga" % (i, name))
+        make_wiki(self.root, pages, "\n".join(lines) + "\n")
+
+    def lookup(self, *args):
+        return run_tool("lookup.py", *args, "quagga", cwd=self.root, WAYMARK_ROOT=self.root)
+
+    def test_top_three_maps(self):
+        out = self.lookup().stdout
+        self.assertEqual(out.count("Where to look:"), 3, out)
+        self.assertIn("- Trap: `lib/old.py` — legacy", out)
+        self.assertIn("- `lib/p0.py` `App.start` — entry point", out)
+
+    def test_blocks_all(self):
+        self.assertEqual(self.lookup("--blocks", "all").stdout.count("Where to look:"), 5)
+
+    def test_json_has_map(self):
+        import json
+        hit = json.loads(self.lookup("--json").stdout)["hits"][0]
+        self.assertEqual(hit["map"][0]["pointer"], "lib/p0.py")
+        self.assertTrue(hit["map"][1]["trap"])
+
+    def test_invalid_map_not_shown(self):
+        page = Path(self.root) / WIKI_DIR / "topic0.md"
+        page.write_text("# T\n\n<!-- wiki-map v1 -->\n- bad\n")
+        self.assertEqual(self.lookup().stdout.count("Where to look:"), 3)
+        out = self.lookup("--blocks", "all").stdout
+        self.assertEqual(out.count("Where to look:"), 4)
+
+
 if __name__ == "__main__":
     unittest.main()

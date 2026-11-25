@@ -10,8 +10,8 @@ status is displayed from the source page. The page's `## History` may include su
 Identifier matches in page bodies (exact,
 case-insensitive) are listed with file:line.
 
-Flags: --max N (default 5) · --json · --blocks all|top (default top = blocks for the top 3 status
-hits) · --branches (show a `Canonical copy` at its resolved commit via read-only `git show`)
+Flags: --max N (default 5) · --json · --blocks all|top (default top = blocks and Where to look maps for
+the top 3 hits that have them; all = every hit) · --branches (show a `Canonical copy` at its resolved commit via read-only `git show`)
 · --deep (when <3 index hits, also rank page bodies by keyword).
 Exit 0 when matches are found, 1 when there are no matches, and 2 on usage or configuration errors.
 """
@@ -24,6 +24,7 @@ import sys
 from functools import lru_cache
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import maplib  # noqa: E402
 import wikilib as wl  # noqa: E402
 
 
@@ -50,6 +51,17 @@ def print_block(pg, indent="   "):
         print("%s  %s: %s" % (indent, key, val))
         for k in kids:
             print("%s    - %s" % (indent, k))
+
+
+def map_lines(entry):
+    return "%s`%s`%s — %s" % ("Trap: " if entry.trap else "", entry.pointer,
+                              " `%s`" % entry.symbol if entry.symbol else "", entry.role)
+
+
+def print_map(section, indent="   "):
+    print("%sWhere to look:" % indent)
+    for entry in section.entries:
+        print("%s  - %s" % (indent, map_lines(entry)))
 
 
 def branch_view(root, pg):
@@ -128,6 +140,10 @@ def main(argv):
     def status_page(name):
         return wl.status_page(root, name, expect_status=name in indexed, cfg=cfg)
 
+    def page_map(name):
+        return maplib.usable_map(os.path.join(wl.wiki_dir(root, cfg), name))
+
+    map_slots = 3 if opts["blocks"] == "top" else len(top)
     if opts["json"]:
         res = {"query": {"keywords": sorted(kws), "identifiers": idents}, "hits": [], "body": {}, "deep": deep}
         for h in top:
@@ -145,6 +161,11 @@ def main(argv):
                         branch = branch_view(root, pg)
                         if branch:
                             d["branch"] = branch
+            section = page_map(e.page) if e.page and map_slots > 0 else None
+            if section:
+                d["map"] = [{"pointer": m.pointer, "symbol": m.symbol, "role": m.role, "trap": m.trap}
+                            for m in section.entries]
+                map_slots -= 1 if opts["blocks"] == "top" else 0
             res["hits"].append(d)
         for t, rows in bodies.items():
             res["body"][t] = []
@@ -177,6 +198,10 @@ def main(argv):
         else:
             txt = e.line[wl.INDEX_LINE.match(e.line).end():].strip() if e.page else e.line
             print("   index line: " + (txt[:300] + ("…" if len(txt) > 300 else "")))
+        section = page_map(e.page) if e.page and map_slots > 0 else None
+        if section:
+            print_map(section)
+            map_slots -= 1 if opts["blocks"] == "top" else 0
     if any(bodies.values()):
         printed = True
         print("Identifier matches in page bodies:")
