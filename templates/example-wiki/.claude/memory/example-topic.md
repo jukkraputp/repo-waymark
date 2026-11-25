@@ -20,3 +20,8 @@
 ## History
 
 2026-01-01: Created the example page.
+
+<!-- wiki-map v1 -->
+## Where to look
+
+- `src/example.py` `example` — the sample entry point; replace this with files in your project

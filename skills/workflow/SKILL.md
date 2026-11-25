@@ -33,4 +33,6 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/status.py" check
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/audit.py"
 ```
 
+A topic page may end with an optional `Where to look` map of pointers into the code (see the [format](reference/format.md)). Write it by hand; `map.py template` prints a skeleton and `map.py suggest TERM...` drafts bullets from the files that commits mentioning a term (an issue key, say) touched; trim and describe them by hand. On a status page place it after `<!-- history -->`.
+
 Keep legacy reference pages as plain topic pages with ordinary index entries. When an audit identifies a problem, consult the [finding codes](reference/audit-codes.md) and correct the relevant evidence, links, or source fields.

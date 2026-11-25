@@ -14,6 +14,7 @@ from itertools import chain
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 try:
+    import maplib
     import wikilib as wl
 except Exception:  # a broken helper must never break a prompt
     wl = None
@@ -97,6 +98,42 @@ def _show(e, page, root, cfg, entry_chars, status_chars):
         entry = "[%s](%s)%s" % (e.title, path, e.line[im.end():]) if im else e.line[2:]
         return _cap(_escape_markup("(%s) %s" % (e.cat, entry.strip())), entry_chars)
     return _cap(_escape_markup(text), status_chars)
+
+
+MAX_WHERE_PER_HIT = 3
+
+
+def _trim_role(role, limit):
+    """The role cut at a word boundary to at most `limit` characters, `…` included; '' when limit is 0."""
+    if limit <= 0:
+        return ""
+    if len(role) <= limit:
+        return role
+    chunk = role[:limit - 1]
+    if not role[limit - 1].isspace() and " " in chunk:
+        chunk = chunk.rsplit(" ", 1)[0]
+    return chunk.rstrip(" ,;:-—") + "…"
+
+
+def _where_lines(root, cfg, page, role_chars):
+    """For up to MAX_WHERE_PER_HIT entries of the page's valid map, in map order, the escaped
+    candidate lines to try in order: the pointer and symbol with the trimmed role, then without the
+    role. A pointer or symbol is never cut."""
+    if not page:
+        return []
+    section = maplib.map_for_page(root, cfg, page)
+    if section is None:
+        return []
+    out = []
+    for e in section.entries[:MAX_WHERE_PER_HIT]:
+        if e.trap:
+            bare = "  trap: `%s`" % e.pointer
+        else:
+            bare = "  where: `%s`%s" % (e.pointer, " `%s`" % e.symbol if e.symbol else "")
+        role = _trim_role(e.role, role_chars)
+        candidates = [bare + " — " + role, bare] if role else [bare]
+        out.append([_escape_markup(c) for c in candidates])
+    return out
 
 
 def _is_harness_envelope(text):
@@ -195,14 +232,31 @@ def main():
         out = [OPENING, HEADER]
         budget = OUTPUT_CHARS - len(CLOSING) - 1
         prefix = _cap("\n".join(out), budget - 1) + "\n"
-        previews = (
-            "- " + _show(h.entry, status_page(h.entry.page), root, cfg, entry_chars, status_chars)
-            for h in shown
-        )
-        for line in chain(previews, body_lines):
+        where_left = _env_int("WHERE_CHARS", 320)
+        role_chars = _env_int("WHERE_ROLE_CHARS", 90)
+
+        def previews():
+            for h in shown:
+                yield "- " + _show(h.entry, status_page(h.entry.page), root, cfg, entry_chars, status_chars), False
+                if where_left > 0:
+                    for candidates in _where_lines(root, cfg, h.entry.page, role_chars):
+                        yield candidates, True
+
+        for line, optional in chain(previews(), ((b, False) for b in body_lines)):
             remaining = budget - len(prefix) - 1
             if remaining <= 0:
                 break
+            if optional:
+                # `line` is a list of candidates, longest first. Try each whole (never cut); one that
+                # misses the shared where budget or the output budget falls back to the next, and an
+                # entry with no fitting candidate is dropped.
+                for candidate in line:
+                    cost = len(candidate) + 1   # the line and its newline
+                    if cost <= where_left and len(candidate) <= remaining:
+                        where_left -= cost
+                        prefix += candidate + "\n"
+                        break
+                continue
             prefix += _cap(line, remaining) + "\n"
         print(prefix + CLOSING)
     except Exception:

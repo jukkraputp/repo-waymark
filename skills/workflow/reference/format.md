@@ -33,3 +33,18 @@ Use a neutral H1. Put `<!-- wiki-status v1 -->` directly below it, allowing blan
 The generated template includes any required project-specific fields. Keep decision, implementation, merge, test, and publication evidence tied to their actual revisions. Use `unknown` when a status or test revision has no evidence. For historical text that can mislead, add a dated banner such as `> **Superseded YYYY-MM-DD:** old claim → replacement (see Current status).`
 
 After editing the source, run `status.py sync` on the page to regenerate the category index line and any existing front-matter `description`. The description is written on one line as a YAML scalar, double-quoted when `About` would not read back as plain YAML (for example `Cache: invalidation`); an existing multi-line or invalid description is replaced as a whole. Sync leaves `As of` alone. Update that date only after verifying the status claims.
+
+## Where to look map (optional)
+
+Any topic page, with or without a status block, may end with a short map of pointers into the code. A person writes it; no tool edits it. On a status page the map goes after `<!-- history -->`, because the status block ends there.
+
+```markdown
+<!-- wiki-map v1 -->
+## Where to look
+
+- `lib/app.dart` `App.start` — entry point
+- Trap: `lib/old_client.dart` — the legacy client; use `lib/client.dart`
+- `feature/x:lib/new.dart` — unmerged change, on its branch only
+```
+
+Rules: `<!-- wiki-map v1 -->` is followed by the heading `## Where to look`; one map per page; 1 to 12 bullets, each starting with a backticked pointer, an optional backticked symbol, and ` — ` plus a role. Use `- ` at the start of the line for every bullet (`*`, `+`, numbered, indented and `-` plus a tab items are `S18`); the heading may be indented up to three spaces. Prefix `Trap: ` for a file that looks right but is wrong. A pointer is a path relative to the project, resolved at `main_ref`; write `ref:path` for a file that exists only on another branch. Name a symbol instead of a line number. Audit checks the map with `S18`, `W7` and `W8`. Lookup prints it, and the prompt hook adds up to three `where:` or `trap:` lines in map order, so put the most important bullets first. Keep each role under about 90 characters: the hook shortens longer ones at a word boundary and drops the role when the line would not fit its shared budget. `python3 scripts/map.py template` prints a skeleton and `map.py suggest TERM...` drafts bullets from the files that commits mentioning the term touched.

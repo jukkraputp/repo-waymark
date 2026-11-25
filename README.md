@@ -1,8 +1,8 @@
 # repo-waymark
 
-Keep repository status in Markdown and find it from Claude Code or the command line. A dated **Current status** block records decisions, code, merges, tests, publication, and next steps. Waymark generates the topic's index entry and updates its existing front-matter description from that block. The audit checks the wiki's structure and compares cited evidence with local Git data.
+Keep a repository wiki in Markdown that tells coding agents where to look and what state the work is in, and surface it in Claude Code or from the command line. A **Where to look** map on any topic page points at the entry points and traps in the code; the prompt hook shows the first few pointers with each matching topic. A dated **Current status** block records decisions, code, merges, tests, publication, and next steps, and Waymark generates the topic's index entry from it. The audit checks the wiki's structure, flags map pointers to files or symbols that no longer exist, and compares cited evidence with local Git data.
 
-In a benchmark on one private app, agents answering status questions covered by the wiki cost 33% less and found 78% of the required facts instead of 57%. Other questions showed no measurable effect. [Details](#benchmark)
+In benchmarks on one private app, agents with code maps reached the right file in 2.4 tool calls instead of 4.0, at 31% lower cost. Agents answering status questions covered by the wiki cost 33% less and found 78% of the required facts instead of 57%. [Details](#benchmark)
 
 ## Install
 
@@ -26,7 +26,7 @@ claude --plugin-dir /path/to/repo-waymark
 
 ## Try the example wiki
 
-Run this block from a local repo-waymark checkout. It copies [the example wiki](templates/example-wiki/) into a temporary project, syncs its index, and runs a lookup and audit.
+Run this block from a local repo-waymark checkout. It copies [the example wiki](templates/example-wiki/) into a temporary project, syncs its index, and runs a lookup and audit. The example page ends with a sample "Where to look" map, which the lookup prints. The second half commits a synthetic source file in the temporary repository, points `main_ref` at its local `main`, records the real commit as evidence, and runs the audit with Git, so the map's pointer and symbol are checked and the audit reports no warnings.
 
 ```sh
 waymark="$PWD"
@@ -36,6 +36,17 @@ python3 "$waymark/scripts/status.py" --root "$project" sync
 python3 "$waymark/scripts/status.py" --root "$project" check
 python3 "$waymark/scripts/lookup.py" --root "$project" "example topic"
 python3 "$waymark/scripts/audit.py" --root "$project" --no-git
+
+# Git-backed audit: commit a synthetic source file, use a local main_ref, and record real evidence.
+mkdir "$project/src" && printf 'def example():\n    return 1\n' > "$project/src/example.py"
+sed 's|"origin/main"|"main"|' "$project/.repo-waymark.json" > "$project/config.tmp" && mv "$project/config.tmp" "$project/.repo-waymark.json"
+git -C "$project" init -q -b main
+git -C "$project" add -A
+git -C "$project" -c user.name=Example -c user.email=example@example.invalid commit -q -m "Add the example"
+page="$project/.claude/memory/example-topic.md"
+sed "s|2026-01-01 · checked at \`1abc234\` (illustrative placeholder; replace after checking)|$(date +%F) · checked at \`$(git -C "$project" rev-parse --short HEAD)\` (\`main\`)|" "$page" > "$page.tmp" && mv "$page.tmp" "$page"
+python3 "$waymark/scripts/status.py" --root "$project" sync
+python3 "$waymark/scripts/audit.py" --root "$project" --strict
 ```
 
 When adopting the template, copy its files into a fresh project or merge them into your existing wiki and configuration. Before running the Git-backed audit, replace the sample `As of` date with today's date (`date +%F`) and the placeholder SHA with a real commit from the project (`git rev-parse --short HEAD` if you checked `HEAD`). Remove the illustrative placeholder note, record your own evidence, and run `status.py sync` before auditing.
@@ -67,6 +78,8 @@ For each status topic, place a top-level Markdown file in the wiki directory and
 2026-01-01: Created the example page.
 ```
 
+A topic page may also end with a short "Where to look" map of pointers into the code, which lookup prints and the hook summarizes. [Map format](skills/workflow/reference/format.md#where-to-look-map-optional)
+
 ## In Claude Code
 
 | Feature | How to use it |
@@ -91,10 +104,12 @@ python3 /path/to/repo-waymark/scripts/lookup.py --root /path/to/project "example
 | `python3 scripts/status.py [--root DIR] sync [page.md …]` | Update linked index lines and existing front-matter descriptions for the named pages, or all opted-in pages. |
 | `python3 scripts/status.py [--root DIR] template` | Print a status page skeleton, including configured extra fields. |
 | `python3 scripts/lookup.py [--root DIR] [OPTIONS] QUERY` | Rank matching wiki entries and find exact identifiers in page bodies. |
+| `python3 scripts/map.py template` | Print a page skeleton: an H1 placeholder, an About line, the "Where to look" section, and the index line to add. |
+| `python3 scripts/map.py [--root DIR] suggest [--ref REF] [--max N] [--] TERM...` | Find commits on `main_ref` (or `--ref`) whose message contains any TERM (fixed string, case-insensitive; one `git log`, at most 200 commits in total), diff each against its first parent, and print the most-touched files as map bullets with a `TODO` role, then the commits used. With a `--ref` other than the `main_ref` name, pointers are written `REF:path`. `--commit SHA` (repeatable) replaces the search; `--branch REF` lists the files a branch changes as `REF:path`. Shallow-clone boundary commits are skipped with a note. Exit `1` when nothing matches, `2` on usage or Git errors. Read-only. |
 | `python3 scripts/audit.py [--root DIR] [--strict] [--no-git]` | Check wiki links, status blocks, and Git evidence. `--strict` makes warnings fail the audit. `--no-git` skips Git checks. |
 | `python3 scripts/prompt_hook.py [--root DIR] [PROMPT]` | Preview hook output. Pass prompt words as arguments, or send a JSON object with a `prompt` field or plain prompt text on stdin. |
 
-Lookup accepts `--max N` to cap index hits (default 5), `--json` for structured output, and `--blocks all|top` to show status blocks for all displayed status hits in text output or up to three (default `top`). `--branches` reads the `Canonical copy` at its resolved commit with Git. `--deep` adds body keyword matches when there are fewer than three index hits.
+Lookup accepts `--max N` to cap index hits (default 5), `--json` for structured output, and `--blocks all|top` to show status blocks and `Where to look` maps for all displayed hits in text output or for up to three (default `top`). `--branches` reads the `Canonical copy` at its resolved commit with Git. `--deep` adds body keyword matches when there are fewer than three index hits.
 
 Issue keys such as `ABC-123` are exact identifiers. The prompt hook matches them only via index lines, so list them in a topic's `Keywords` field; lookup also searches page bodies.
 
@@ -182,6 +197,8 @@ Root resolution uses `--root` first, then `WAYMARK_ROOT`. Without an override, d
 | `WAYMARK_HOOK_MAX_DF` | `0.03`: a keyword on more than this share of index lines (and on more than 3 lines) is common. A word-only hit also needs one keyword that is not common. |
 | `WAYMARK_HOOK_MAX_HITS` | `3` index matches shown by the hook. |
 | `WAYMARK_HOOK_ENTRY_CHARS` | `160` characters per plain index preview. |
+| `WAYMARK_HOOK_WHERE_CHARS` | `320` characters in total, for the whole prompt, for the map lines the hook adds under hits whose pages have a valid map: up to 3 per hit, in the map's order, as `  where: \`path\` \`Symbol\` — role` or `  trap: \`path\` — role`. A role longer than `WAYMARK_HOOK_WHERE_ROLE_CHARS` is shortened first. A line that still does not fit the remaining budget is tried again with the pointer and symbol only, then dropped; a pointer or symbol is never cut. `0` turns them off. |
+| `WAYMARK_HOOK_WHERE_ROLE_CHARS` | `90` characters per role in those lines, cut at a word boundary with `…` included in the count. `0` shows the pointer and symbol only. |
 | `WAYMARK_HOOK_STATUS_CHARS` | `220` characters per status preview. The preview shows the date and only the status fields whose value is not `unknown`, `n/a` or `none`. |
 
 ## Benchmark
@@ -228,6 +245,30 @@ What we learned:
 - The tool's author wrote the questions and the answer key, knowing which pages existed.
 - An LLM grader isn't fully blind: answers from the wiki arm often mention the wiki.
 - The code rows depend on the repository's other agent instructions. A separate rule there, which sent agents to look for a missing diagrams folder, cost about one tool call per run in both arms.
+
+### Navigation with code maps (0.1.7)
+
+A second benchmark asked where to look instead of what state the work is in. It used the same app and model, and 8 questions that grep handles badly: 5 named a ticket or a product behaviour from a covered topic, and 3 had a plausible wrong file (two HTTP clients, three deep-link entry points, a launch check and an in-app check). Each ran 3 times in three clones of the same commit:
+
+- **No wiki.**
+- **Wiki:** the 9 status pages from the first benchmark.
+- **Wiki with maps:** the same pages, each ending with a map, plus 12 map-only pages for code areas, written by an agent that had not seen the questions, and version 0.1.7 vendored.
+
+| | No wiki | Wiki | Wiki with maps |
+|---|---|---|---|
+| Tool calls until a required file is first opened or searched | 4.0 | 4.0 | **2.4** |
+| Tool calls per run | 5.8 | 5.4 | **3.2** |
+| Mean cost per run | $0.075 | $0.073 | **$0.052** (−31%) |
+| Time per run | 20.8 s | 21.1 s | **14.4 s** |
+| Required facts found | 89% | 84% | **95%** |
+| Correct / partly correct / wrong | 13/11/0 | 12/12/0 | 15/9/0 |
+
+- Against each other arm, maps cost less on 7 of 8 questions. They reached a required file sooner on 7 of 8 against no wiki and on 8 of 8 against the status wiki.
+- Status pages alone did not help navigation.
+- No arm gave a wrong answer: every agent eventually found the right file, and maps mainly saved the search. Partly correct answers missed details the key required beyond the file, about equally in every arm.
+- The author added two areas to the map writer's brief after writing the questions (startup checks and the deep-link entry points). Without those two questions, maps still cost less and reached the file sooner on all 6 remaining questions: $0.044 against $0.071 per run, and 2.2 against 4.0 tool calls.
+
+The same caveats apply: one repository, one model, 3 runs per question, and questions written by the tool's author.
 
 The questions, transcripts and answer key stay private because they describe a private codebase.
 

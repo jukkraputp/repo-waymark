@@ -15,6 +15,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 try:
+    import maplib  # noqa: E402
     import status as status_mod  # noqa: E402
     import wikilib as wl  # noqa: E402
 except ImportError as exc:
@@ -71,7 +72,7 @@ def missing_link_code(root, wiki_dir, pagedir, target):
 
 
 def check_status_paths(root, pg, git, findings):
-    block = pg.block_text()
+    block = maplib.mask_pointers(pg.block_text())
     pagedir = os.path.dirname(pg.path)
     wiki_dir = wl.wiki_dir(root, pg.config)
     for target in MDLINK.findall(block):
@@ -169,8 +170,11 @@ def check_status_page(root, pg, git, findings, today):
                 findings.err("S11", n, "Superseded entry lacks `→` or `replaced by`: %r" % e[:80])
     # S13 ---------------------------------------------------------------
     if pg.history_idx is not None and asof_d:
-        for l in pg.lines[pg.history_idx:]:
-            if re.match(r"^#{2,3} ", l):
+        section = maplib.parse_map(pg.text)
+        in_map = range(section.start, section.end) if section and section.start is not None else ()
+        for idx in range(pg.history_idx, len(pg.lines)):
+            l = pg.lines[idx]
+            if idx not in in_map and re.match(r"^#{2,3} ", l):
                 for d in ISO.findall(l):
                     try:
                         if datetime.date.fromisoformat(d) > asof_d:
@@ -312,13 +316,22 @@ def check_status_page(root, pg, git, findings, today):
         findings.warn("W5", n, "page is not tracked by git")
 
 
+def check_map_page(root, name, config, git, findings):
+    """Map checks run on every topic page that has a map section, status block or not."""
+    section = maplib.parsed_map_for_page(root, config, name)
+    if section is None:
+        return
+    for code, msg in maplib.audit_section(section, git, config["main_ref"]):
+        (findings.err if code.startswith("S") else findings.warn)(code, name, msg)
+
+
 def global_checks(root, config, pages, git, findings):
     release_tag_pattern = config["release_tag_pattern"]
     release_tags = re.compile(release_tag_pattern) if git and release_tag_pattern is not None else None
     cited_tags = collections.defaultdict(set)
     wiki_dir = wl.wiki_dir(root, config)
     for p in pages:
-        txt = wl.read(os.path.join(wiki_dir, p))
+        txt = maplib.mask_pointers(wl.read(os.path.join(wiki_dir, p)))
         for target in MDLINK.findall(txt):
             path = strip_loc(target)
             if not path or EXTERNAL_LINK.match(path) or path.startswith("/") or any(c in path for c in "<{$*"):
@@ -342,6 +355,8 @@ def check_pages(root, config, pages, git):
     status_pages = wl.status_pages(root, config)
     for pg in status_pages:
         check_status_page(root, pg, git, findings, today)
+    for name in pages:
+        check_map_page(root, name, config, git, findings)
     global_checks(root, config, pages, git, findings)
     return len(status_pages), findings
 
@@ -389,7 +404,7 @@ def main(argv) -> int:
     where: dict = collections.defaultdict(set)
     for p in sorted(pages):
         txt = read_audit_text(os.path.join(wiki_dir, p), findings)
-        for link in WIKILINK.findall(txt):
+        for link in WIKILINK.findall(maplib.mask_pointers(txt)):
             if link + ".md" not in pages:
                 broken[link] += 1
                 where[link].add(p)
