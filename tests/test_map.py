@@ -201,5 +201,36 @@ class LookupMap(unittest.TestCase):
         self.assertEqual(out.count("Where to look:"), 4)
 
 
+class HookMap(unittest.TestCase):
+    def setUp(self):
+        d = tempfile.TemporaryDirectory()
+        self.addCleanup(d.cleanup)
+        self.root = d.name
+        make_wiki(self.root, {"topic.md": "# Topic\n\n" + MAP},
+                  "- [Topic](topic.md) — zebrafish quagga\n- [Other](other.md) — zebrafish quagga\n")
+        (Path(self.root) / WIKI_DIR / "other.md").write_text("# Other\n")
+
+    def hook(self, **env):
+        return run_tool("prompt_hook.py", "zebrafish quagga", cwd=self.root, WAYMARK_ROOT=self.root, **env).stdout
+
+    def test_where_line(self):
+        out = self.hook()
+        self.assertIn("  where: `lib/app.py` `App.start` — entry point;", out)
+        self.assertIn("Trap: `lib/old.py` — legacy; use `lib/app.py`", out)
+        self.assertLess(out.index("`feat:lib/new.py`"), out.index("Trap:"))
+
+    def test_where_chars_zero_disables(self):
+        self.assertNotIn("where:", self.hook(WAYMARK_HOOK_WHERE_CHARS=0))
+
+    def test_where_chars_drops_whole_entries(self):
+        out = self.hook(WAYMARK_HOOK_WHERE_CHARS=60)
+        self.assertIn("where: `lib/app.py` `App.start` — entry point", out)
+        self.assertNotIn("Trap:", out)
+
+    def test_invalid_map_gives_no_where_line(self):
+        (Path(self.root) / WIKI_DIR / "topic.md").write_text("# T\n\n<!-- wiki-map v1 -->\n- bad\n")
+        self.assertNotIn("where:", self.hook())
+
+
 if __name__ == "__main__":
     unittest.main()

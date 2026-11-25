@@ -14,6 +14,7 @@ from itertools import chain
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 try:
+    import maplib
     import wikilib as wl
 except Exception:  # a broken helper must never break a prompt
     wl = None
@@ -97,6 +98,28 @@ def _show(e, page, root, cfg, entry_chars, status_chars):
         entry = "[%s](%s)%s" % (e.title, path, e.line[im.end():]) if im else e.line[2:]
         return _cap(_escape_markup("(%s) %s" % (e.cat, entry.strip())), entry_chars)
     return _cap(_escape_markup(text), status_chars)
+
+
+def _where_line(root, cfg, page, chars):
+    """'where: `ptr` `sym` — role; …; Trap: …' from the page's valid map, or None.
+
+    Pointers come first, traps last. Whole entries are dropped, never cut, to fit `chars`."""
+    if chars <= 0 or not page:
+        return None
+    section = maplib.usable_map(os.path.join(wl.wiki_dir(root, cfg), page))
+    if section is None:
+        return None
+    ordered = sorted(section.entries, key=lambda e: e.trap)
+    parts = []
+    for e in ordered:
+        part = "%s`%s`%s — %s" % ("Trap: " if e.trap else "", e.pointer,
+                                  " `%s`" % e.symbol if e.symbol else "", e.role)
+        if len("where: " + "; ".join(parts + [part])) > chars:
+            if not parts:
+                parts.append(_cap(part, max(0, chars - len("where: "))))
+            break
+        parts.append(part)
+    return _escape_markup("  where: " + "; ".join(parts)) if parts else None
 
 
 def _is_harness_envelope(text):
@@ -195,14 +218,21 @@ def main():
         out = [OPENING, HEADER]
         budget = OUTPUT_CHARS - len(CLOSING) - 1
         prefix = _cap("\n".join(out), budget - 1) + "\n"
-        previews = (
-            "- " + _show(h.entry, status_page(h.entry.page), root, cfg, entry_chars, status_chars)
-            for h in shown
-        )
-        for line in chain(previews, body_lines):
+        where_chars = _env_int("WHERE_CHARS", 160)
+
+        def previews():
+            for h in shown:
+                yield "- " + _show(h.entry, status_page(h.entry.page), root, cfg, entry_chars, status_chars), False
+                where = _where_line(root, cfg, h.entry.page, where_chars)
+                if where:
+                    yield where, True
+
+        for line, optional in chain(previews(), ((b, False) for b in body_lines)):
             remaining = budget - len(prefix) - 1
             if remaining <= 0:
                 break
+            if optional and len(line) > remaining:
+                continue   # a where line is whole or absent; a later, shorter one may still fit
             prefix += _cap(line, remaining) + "\n"
         print(prefix + CLOSING)
     except Exception:
