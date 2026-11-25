@@ -272,36 +272,77 @@ class HookMap(unittest.TestCase):
                                "  where: `lib/a.py` `A.run` — first",
                                "  where: `lib/b.py` — second"])
 
+    LONG = ("Reads the manifest and decides which entries to refresh, then writes the cache file back "
+            "to disk before the process exits")
+
+    def one_page(self, role, pointer="lib/a.py", symbol=""):
+        self.wiki({"t": "# T\n\n<!-- wiki-map v1 -->\n## Where to look\n\n- `%s`%s — %s\n"
+                   % (pointer, " `%s`" % symbol if symbol else "", role)})
+
     def test_shared_budget_drops_later_lines_whole(self):
         pages = {n: "# T\n\n<!-- wiki-map v1 -->\n## Where to look\n\n- `lib/%s.py` — role %s\n" % (n, n)
                  for n in ("a", "b", "c")}
         self.wiki(pages)
-        one = len("  where: `lib/a.py` — role a") + 1   # each line is charged with its newline
-        got = self.lines(self.hook(WAYMARK_HOOK_WHERE_CHARS=2 * one))
+        one = len("  where: `lib/a.py`") + 1   # pointer and symbol only; each line is charged its newline
+        env = {"WAYMARK_HOOK_WHERE_ROLE_CHARS": 0}
+        got = self.lines(self.hook(WAYMARK_HOOK_WHERE_CHARS=2 * one, **env))
         self.assertEqual(len(got), 2, got)
         for l in got:
             self.assertEqual(len(l) + 1, one)
-        self.assertEqual(len(self.lines(self.hook(WAYMARK_HOOK_WHERE_CHARS=2 * one - 1))), 1)
-        self.assertEqual(self.lines(self.hook(WAYMARK_HOOK_WHERE_CHARS=one - 1)), [])
+        self.assertEqual(len(self.lines(self.hook(WAYMARK_HOOK_WHERE_CHARS=2 * one - 1, **env))), 1)
+        self.assertEqual(self.lines(self.hook(WAYMARK_HOOK_WHERE_CHARS=one - 1, **env)), [])
         self.assertEqual(len(self.lines(self.hook())), 3)
 
-    def test_no_line_is_ever_cut(self):
-        self.wiki({"t": "# T\n\n<!-- wiki-map v1 -->\n## Where to look\n\n- `lib/a.py` — %s\n" % ("long " * 20)})
-        self.assertEqual(self.lines(self.hook(WAYMARK_HOOK_WHERE_CHARS=40)), [])
-        full = self.lines(self.hook())
-        self.assertEqual(len(full), 1)
-        self.assertTrue(full[0].endswith("long"), full[0])
-        self.assertNotIn("…", full[0])
+    def test_long_role_is_trimmed_at_a_word_boundary_with_an_ellipsis(self):
+        self.one_page(self.LONG, symbol="Cache.refresh")
+        [line] = self.lines(self.hook())
+        role = line.split(" — ", 1)[1]
+        self.assertLessEqual(len(role), 90)
+        self.assertTrue(role.endswith("…"), role)
+        self.assertTrue(self.LONG.startswith(role[:-1]), role)
+        self.assertEqual(self.LONG[len(role) - 1], " ")   # cut on a word boundary
+        self.assertTrue(line.startswith("  where: `lib/a.py` `Cache.refresh` — "))
+        short = self.lines(self.hook(WAYMARK_HOOK_WHERE_ROLE_CHARS=30))[0].split(" — ", 1)[1]
+        self.assertLessEqual(len(short), 30)
+        self.assertTrue(short.endswith("…"))
+        self.one_page("short role")
+        self.assertEqual(self.lines(self.hook()), ["  where: `lib/a.py` — short role"])
+
+    def test_role_is_dropped_when_the_trimmed_line_does_not_fit(self):
+        self.one_page(self.LONG, symbol="Cache.refresh")
+        bare = "  where: `lib/a.py` `Cache.refresh`"
+        self.assertEqual(self.lines(self.hook(WAYMARK_HOOK_WHERE_CHARS=len(bare) + 1)), [bare])
+        self.assertEqual(self.lines(self.hook(WAYMARK_HOOK_WHERE_CHARS=len(bare))), [])   # pointer never cut
+        full = self.lines(self.hook())[0]
+        self.assertEqual(self.lines(self.hook(WAYMARK_HOOK_WHERE_CHARS=len(full))), [bare])   # newline counts
+        self.assertEqual(self.lines(self.hook(WAYMARK_HOOK_WHERE_CHARS=len(full) + 1)), [full])
+
+    def test_trap_entry_falls_back_to_pointer_only(self):
+        self.wiki({"t": "# T\n\n<!-- wiki-map v1 -->\n## Where to look\n\n- Trap: `lib/old.py` — %s\n" % self.LONG})
+        self.assertEqual(self.lines(self.hook(WAYMARK_HOOK_WHERE_CHARS=len("  trap: `lib/old.py`") + 1)),
+                         ["  trap: `lib/old.py`"])
+
+    def test_role_chars_zero_shows_pointer_and_symbol_only(self):
+        self.one_page("a role", symbol="A.b")
+        self.assertEqual(self.lines(self.hook(WAYMARK_HOOK_WHERE_ROLE_CHARS=0)), ["  where: `lib/a.py` `A.b`"])
+
+    def test_a_long_pointer_is_dropped_never_cut(self):
+        self.one_page("r", pointer="lib/" + "x" * 80 + ".py")
+        self.assertEqual(self.lines(self.hook(WAYMARK_HOOK_WHERE_CHARS=60)), [])
+        self.assertEqual(len(self.lines(self.hook())), 1)
 
     def test_escaping_counts_toward_the_budget(self):
-        self.wiki({"t": "# T\n\n<!-- wiki-map v1 -->\n## Where to look\n\n- `lib/a.py` — <b>x</b>\n"})
+        self.one_page("<b>x</b>")
+        bare = len("  where: `lib/a.py`")
         raw = len("  where: `lib/a.py` — <b>x</b>")
         escaped = raw + 4 * 3 + 1   # four angle brackets, each grows by 3 characters, plus the newline
-        self.assertEqual(self.lines(self.hook(WAYMARK_HOOK_WHERE_CHARS=escaped - 1)), [])
+        short = self.lines(self.hook(WAYMARK_HOOK_WHERE_CHARS=escaped - 1))
+        self.assertEqual(short, ["  where: `lib/a.py`"])   # the escaped role no longer fits
         got = self.lines(self.hook(WAYMARK_HOOK_WHERE_CHARS=escaped))
         self.assertEqual(len(got), 1)
         self.assertNotIn("<b>", got[0])
         self.assertIn("&lt;b&gt;", got[0])
+        self.assertEqual(self.lines(self.hook(WAYMARK_HOOK_WHERE_CHARS=bare)), [])
 
     def test_zero_disables_and_pages_without_maps_are_unchanged(self):
         self.wiki({"t": "# T\n\n" + self.TRAP_FIRST, "u": "# U\n\nplain\n"})

@@ -197,7 +197,8 @@ Root resolution uses `--root` first, then `WAYMARK_ROOT`. Without an override, d
 | `WAYMARK_HOOK_MAX_DF` | `0.03`: a keyword on more than this share of index lines (and on more than 3 lines) is common. A word-only hit also needs one keyword that is not common. |
 | `WAYMARK_HOOK_MAX_HITS` | `3` index matches shown by the hook. |
 | `WAYMARK_HOOK_ENTRY_CHARS` | `160` characters per plain index preview. |
-| `WAYMARK_HOOK_WHERE_CHARS` | `320` characters in total, for the whole prompt, for the map lines the hook adds under hits whose pages have a valid map: up to 3 per hit, in the map's order, as `  where: \`path\` \`Symbol\` — role` or `  trap: \`path\` — role`. A line that does not fit the remaining budget is dropped whole, never cut. `0` turns them off. |
+| `WAYMARK_HOOK_WHERE_CHARS` | `320` characters in total, for the whole prompt, for the map lines the hook adds under hits whose pages have a valid map: up to 3 per hit, in the map's order, as `  where: \`path\` \`Symbol\` — role` or `  trap: \`path\` — role`. A role longer than `WAYMARK_HOOK_WHERE_ROLE_CHARS` is shortened first. A line that still does not fit the remaining budget is tried again with the pointer and symbol only, then dropped; a pointer or symbol is never cut. `0` turns them off. |
+| `WAYMARK_HOOK_WHERE_ROLE_CHARS` | `90` characters per role in those lines, cut at a word boundary with `…` included in the count. `0` shows the pointer and symbol only. |
 | `WAYMARK_HOOK_STATUS_CHARS` | `220` characters per status preview. The preview shows the date and only the status fields whose value is not `unknown`, `n/a` or `none`. |
 
 ## Benchmark
