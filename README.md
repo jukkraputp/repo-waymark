@@ -94,7 +94,7 @@ python3 /path/to/repo-waymark/scripts/lookup.py --root /path/to/project "example
 | `python3 scripts/status.py [--root DIR] template` | Print a status page skeleton, including configured extra fields. |
 | `python3 scripts/lookup.py [--root DIR] [OPTIONS] QUERY` | Rank matching wiki entries and find exact identifiers in page bodies. |
 | `python3 scripts/map.py template` | Print an empty "Where to look" map section. |
-| `python3 scripts/map.py [--root DIR] suggest [--ref REF] [--base BASE] [--max N]` | Draft map bullets from the files changed most often in recent Git history (at most 200 commits), or by a branch against its merge base. Roles are left as TODO. |
+| `python3 scripts/map.py [--root DIR] suggest [--ref REF] [--max N] TERM...` | Find commits on `main_ref` (or `--ref`) whose message contains any TERM (fixed string, case-insensitive), diff each against its first parent, and print the most-touched files as map bullets with a `TODO` role, then the commits used. `--commits SHA...` replaces the search; `--branch REF` lists the files a branch changes as `REF:path`. Exit `1` when nothing matches, `2` on usage or Git errors. Read-only. |
 | `python3 scripts/audit.py [--root DIR] [--strict] [--no-git]` | Check wiki links, status blocks, and Git evidence. `--strict` makes warnings fail the audit. `--no-git` skips Git checks. |
 | `python3 scripts/prompt_hook.py [--root DIR] [PROMPT]` | Preview hook output. Pass prompt words as arguments, or send a JSON object with a `prompt` field or plain prompt text on stdin. |
 

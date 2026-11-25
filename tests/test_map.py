@@ -5,8 +5,11 @@ import tempfile
 import unittest
 
 from helpers import PAGE, WIKI_DIR, git, init_git, make_wiki, run_tool, write_config
+import map as maptool
 import maplib
 import wikilib as wl
+
+maplib_free_parse = maptool.parse_numstat
 
 MAP = """<!-- wiki-map v1 -->
 ## Where to look
@@ -281,26 +284,47 @@ class HookMap(unittest.TestCase):
 
 @unittest.skipUnless(shutil.which("git"), "Git is required")
 class MapTool(unittest.TestCase):
-    def setUp(self):
+    @classmethod
+    def setUpClass(cls):
         d = tempfile.TemporaryDirectory()
-        self.addCleanup(d.cleanup)
-        self.root = Path(d.name)
-        init_git(self.root)
-        write_config(self.root, main_ref="main")
-        (self.root / "lib").mkdir()
-        for i in range(3):
-            (self.root / "lib/hot.py").write_text("v%d\n" % i)
-            (self.root / "lib/cold.py").write_text("c\n")
-            git(self.root, "add", ".")
-            git(self.root, "commit", "--quiet", "-m", "c%d" % i)
-        git(self.root, "checkout", "--quiet", "-b", "feat")
-        (self.root / "lib/new.py").write_text("n\n")
-        git(self.root, "add", ".")
-        git(self.root, "commit", "--quiet", "-m", "feat")
-        git(self.root, "checkout", "--quiet", "main")
+        cls.addClassCleanup(d.cleanup)
+        r = cls.root = Path(d.name)
+        init_git(r)
+        write_config(r, main_ref="main")
+        (r / "lib").mkdir()
+
+        def commit(msg, **files):
+            for name, text in files.items():
+                path = r / name.replace("__", "/")
+                path.parent.mkdir(parents=True, exist_ok=True)
+                if text is None:
+                    path.unlink()
+                else:
+                    path.write_bytes(text if isinstance(text, bytes) else text.encode())
+            git(r, "add", "-A")
+            git(r, "commit", "--quiet", "-m", msg)
+
+        # root commit, matches WA-1
+        commit("WA-1 add hot and cold", lib__hot="1\n", lib__cold="c\n", lib__temp="t\n",
+               **{".claude__memory__note.md": "# n\n"})
+        commit("wa-1 tweak hot", lib__hot="1\n2\n3\n")
+        commit("unrelated change", lib__other="o\n")
+        commit("WA-1 move cold", lib__cold=None, lib__moved="c\n")
+        commit("WA-1 drop temp, add blob", lib__temp=None, lib__bin=b"\x00\x01\x02")
+        git(r, "checkout", "--quiet", "-b", "side")
+        commit("side work", lib__side="s\n")
+        git(r, "checkout", "--quiet", "main")
+        commit("main work", lib__mainonly="m\n")
+        git(r, "merge", "--quiet", "--no-ff", "-m", "Merge WA-1 side branch", "side")
+        git(r, "checkout", "--quiet", "-b", "feat")
+        commit("feat", lib__feat="f\n", **{".claude__memory__feat.md": "# f\n"})
+        git(r, "checkout", "--quiet", "main")
 
     def run_map(self, *args, cwd=None):
         return run_tool("map.py", *args, cwd=cwd or self.root)
+
+    def paths(self, r):
+        return [l.split("`")[1] for l in r.stdout.split("\n") if l.startswith("- `")]
 
     def test_template_needs_no_wiki(self):
         with tempfile.TemporaryDirectory() as empty:
@@ -308,31 +332,75 @@ class MapTool(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertTrue(maplib.parse_map(r.stdout.replace("path/to/", "x/")).usable)
 
-    def test_suggest_ranks_by_change_count(self):
-        r = self.run_map("suggest")
+    def test_term_match_case_insensitive_and_ranked(self):
+        r = self.run_map("suggest", "wa-1")
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertLess(r.stdout.index("lib/hot.py"), r.stdout.index("lib/cold.py") if "lib/cold.py" in r.stdout else 10**9)
-        self.assertTrue(maplib.parse_map(r.stdout).usable)
+        got = self.paths(r)
+        self.assertEqual(got[0], "lib/hot")           # two matching commits beat one
+        self.assertTrue(maplib.parse_map(r.stdout.split("\n\nCommits used")[0]).usable)
+        self.assertIn("— TODO", r.stdout)
+        self.assertIn("Commits used (", r.stdout)
 
-    def test_suggest_branch_uses_ref_pointers(self):
-        r = self.run_map("suggest", "--ref", "feat")
+    def test_rank_ties_break_on_lines(self):
+        got = self.paths(self.run_map("suggest", "WA-1"))
+        # one matching commit each: side has 1 changed line, a pure rename and a binary file have 0
+        self.assertLess(got.index("lib/side"), got.index("lib/bin"))
+        self.assertLess(got.index("lib/bin"), got.index("lib/moved"))
+
+    def test_term_is_a_fixed_string(self):
+        self.assertEqual(self.run_map("suggest", "WA.1").returncode, 1)
+        self.assertEqual(self.run_map("suggest", "no-such-term").returncode, 1)
+
+    def test_rename_counts_new_path_deleted_and_wiki_dropped(self):
+        got = self.paths(self.run_map("suggest", "WA-1"))
+        self.assertIn("lib/moved", got)
+        self.assertNotIn("lib/cold", got)
+        self.assertNotIn("lib/temp", got)
+        self.assertFalse([g for g in got if g.startswith(".claude/")], got)
+
+    def test_binary_file_is_listed(self):
+        self.assertIn("lib/bin", self.paths(self.run_map("suggest", "WA-1")))
+
+    def test_merge_commit_diffs_against_first_parent(self):
+        r = self.run_map("suggest", "Merge WA-1 side")
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("`feat:lib/new.py`", r.stdout)
-        self.assertNotIn("hot.py", r.stdout)
+        self.assertEqual(self.paths(r), ["lib/side"])
 
-    def test_suggest_unrelated_history_uses_empty_tree(self):
-        git(self.root, "checkout", "--quiet", "--orphan", "other")
-        git(self.root, "rm", "-rfq", "--cached", ".")
-        (self.root / "solo.py").write_text("s\n")
-        git(self.root, "add", "solo.py")
-        git(self.root, "commit", "--quiet", "-m", "solo")
-        git(self.root, "checkout", "--quiet", "-f", "main")
-        r = self.run_map("suggest", "--ref", "other")
+    def test_root_commit_diffs_against_empty_tree(self):
+        r = self.run_map("suggest", "add hot and cold")
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("`other:solo.py`", r.stdout)
+        got = self.paths(r)
+        self.assertIn("lib/hot", got)
+        self.assertNotIn("lib/cold", got)   # moved away
+        self.assertNotIn("lib/temp", got)   # deleted
 
-    def test_suggest_bad_ref_is_usage_error(self):
-        self.assertEqual(self.run_map("suggest", "--ref", "nope").returncode, 2)
+    def test_commits_option(self):
+        sha = git(self.root, "log", "--format=%H", "--grep=unrelated")
+        r = self.run_map("suggest", "--commits", sha)
+        self.assertEqual(self.paths(r), ["lib/other"])
+        self.assertEqual(self.run_map("suggest", "--commits", "nope123").returncode, 2)
+
+    def test_max_and_ref(self):
+        self.assertEqual(len(self.paths(self.run_map("suggest", "--max", "2", "WA-1"))), 2)
+        r = self.run_map("suggest", "--ref", "feat", "feat")
+        self.assertEqual(self.paths(r), ["lib/feat"])      # wiki file dropped
+        self.assertEqual(self.run_map("suggest", "--ref", "feat", "unrelated").returncode, 0)
+        self.assertEqual(self.run_map("suggest", "--ref", "nope", "x").returncode, 2)
+
+    def test_branch_uses_ref_pointers(self):
+        r = self.run_map("suggest", "--branch", "feat")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.paths(r), ["feat:lib/feat"])
+
+    def test_usage_errors_exit_2(self):
+        self.assertEqual(self.run_map("suggest").returncode, 2)
+        self.assertEqual(self.run_map("suggest", "--branch", "feat", "WA-1").returncode, 2)
+        self.assertEqual(self.run_map("suggest", "--branch", "nope").returncode, 2)
+        self.assertEqual(self.run_map("suggest", "--max", "0", "WA-1").returncode, 2)
+
+    def test_parse_numstat_rename_and_binary(self):
+        raw = b"3\t1\tlib/a\0-\t-\tlib/bin\0" + b"2\t0\t\0lib/old\0lib/new\0" + b"1\t1\tlib/z\0"
+        self.assertEqual(maplib_free_parse(raw), [("lib/a", 4), ("lib/bin", 0), ("lib/new", 2), ("lib/z", 2)])
 
 
 if __name__ == "__main__":
