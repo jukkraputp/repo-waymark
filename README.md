@@ -272,6 +272,19 @@ The same caveats apply: one repository, one model, 3 runs per question, and ques
 
 The questions, transcripts and answer key stay private because they describe a private codebase.
 
+### Real-project trial (0.1.8)
+
+A spot check compared one Claude Sonnet run per question on a private mobile app, using 0.1.7 and 0.1.8. The 0.1.7 hook found 2 of 4 questions: one miss was a wiki content gap fixed by adding the word used in the question to Keywords; the other was plural `switches` versus `switch`, addressed by 0.1.8's plural fallback.
+
+| Question | Wiki page read, before → after | Tool calls | Cost (USD) | Answer correctness |
+|---|---|---|---|---|
+| Main backend request timeout | No → yes | 4 → 4 | $0.41 → $0.18 | Correct → partial |
+| Ticket checkbox hit area (ticket ID given) | Yes → yes | 4 → 4 | $0.36 → $0.23 | Correct → correct |
+| Where a new language is applied on switching | No → yes | 6 → 5 | $0.41 → $0.36 | Correct core mechanism → correct core mechanism |
+| Feature branch merged into integration branch? | Yes → yes | 8 → 5 | $0.34 → $0.32 | Correct for cached ref → qualified, supported by cached ref |
+
+Page reads are explicit successful reads in the logs; hook output was not visible. This is a spot check, not a benchmark. The first improvement came from wiki content, not code, and the after answer did not identify which client serves the main backend. Git checks were denied in the fourth after run, so live remote status remained unverified. Costs include the tester's global plugins and MCP servers.
+
 ## Limits
 
 - The wiki uses top-level Markdown topic files and category indexes named `index-*.md`. Plain indexed pages are searchable. Pages with the status marker opt in to status validation and synchronization.
