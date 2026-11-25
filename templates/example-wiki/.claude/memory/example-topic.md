@@ -20,3 +20,8 @@
 ## History
 
 2026-01-01: Created the example page.
+
+<!-- wiki-map v1 -->
+## Where to look
+
+- `.repo-waymark.json` — the wiki's configuration; replace this sample with files in your project

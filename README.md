@@ -26,7 +26,7 @@ claude --plugin-dir /path/to/repo-waymark
 
 ## Try the example wiki
 
-Run this block from a local repo-waymark checkout. It copies [the example wiki](templates/example-wiki/) into a temporary project, syncs its index, and runs a lookup and audit.
+Run this block from a local repo-waymark checkout. It copies [the example wiki](templates/example-wiki/) into a temporary project, syncs its index, and runs a lookup and audit. The example page ends with a sample "Where to look" map, which the lookup prints.
 
 ```sh
 waymark="$PWD"
@@ -67,6 +67,8 @@ For each status topic, place a top-level Markdown file in the wiki directory and
 2026-01-01: Created the example page.
 ```
 
+A topic page may also end with a short "Where to look" map of pointers into the code, which lookup prints and the hook summarizes. [Map format](skills/workflow/reference/format.md#where-to-look-map-optional)
+
 ## In Claude Code
 
 | Feature | How to use it |
@@ -91,10 +93,12 @@ python3 /path/to/repo-waymark/scripts/lookup.py --root /path/to/project "example
 | `python3 scripts/status.py [--root DIR] sync [page.md …]` | Update linked index lines and existing front-matter descriptions for the named pages, or all opted-in pages. |
 | `python3 scripts/status.py [--root DIR] template` | Print a status page skeleton, including configured extra fields. |
 | `python3 scripts/lookup.py [--root DIR] [OPTIONS] QUERY` | Rank matching wiki entries and find exact identifiers in page bodies. |
+| `python3 scripts/map.py template` | Print an empty "Where to look" map section. |
+| `python3 scripts/map.py [--root DIR] suggest [--ref REF] [--base BASE] [--max N]` | Draft map bullets from the files changed most often in recent Git history (at most 200 commits), or by a branch against its merge base. Roles are left as TODO. |
 | `python3 scripts/audit.py [--root DIR] [--strict] [--no-git]` | Check wiki links, status blocks, and Git evidence. `--strict` makes warnings fail the audit. `--no-git` skips Git checks. |
 | `python3 scripts/prompt_hook.py [--root DIR] [PROMPT]` | Preview hook output. Pass prompt words as arguments, or send a JSON object with a `prompt` field or plain prompt text on stdin. |
 
-Lookup accepts `--max N` to cap index hits (default 5), `--json` for structured output, and `--blocks all|top` to show status blocks for all displayed status hits in text output or up to three (default `top`). `--branches` reads the `Canonical copy` at its resolved commit with Git. `--deep` adds body keyword matches when there are fewer than three index hits.
+Lookup accepts `--max N` to cap index hits (default 5), `--json` for structured output, and `--blocks all|top` to show status blocks and `Where to look` maps for all displayed hits in text output or for up to three (default `top`). `--branches` reads the `Canonical copy` at its resolved commit with Git. `--deep` adds body keyword matches when there are fewer than three index hits.
 
 Issue keys such as `ABC-123` are exact identifiers. The prompt hook matches them only via index lines, so list them in a topic's `Keywords` field; lookup also searches page bodies.
 
@@ -182,6 +186,7 @@ Root resolution uses `--root` first, then `WAYMARK_ROOT`. Without an override, d
 | `WAYMARK_HOOK_MAX_DF` | `0.03`: a keyword on more than this share of index lines (and on more than 3 lines) is common. A word-only hit also needs one keyword that is not common. |
 | `WAYMARK_HOOK_MAX_HITS` | `3` index matches shown by the hook. |
 | `WAYMARK_HOOK_ENTRY_CHARS` | `160` characters per plain index preview. |
+| `WAYMARK_HOOK_WHERE_CHARS` | `160` characters for the `where:` line the hook adds under a hit whose page has a valid map; whole entries are dropped to fit, `0` turns the line off. |
 | `WAYMARK_HOOK_STATUS_CHARS` | `220` characters per status preview. The preview shows the date and only the status fields whose value is not `unknown`, `n/a` or `none`. |
 
 ## Benchmark

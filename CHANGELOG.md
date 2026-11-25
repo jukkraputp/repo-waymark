@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.1.7]
+
+- Added the optional "Where to look" map: a short list of pointers into the code at the end of any topic page, introduced by `<!-- wiki-map v1 -->` and `## Where to look` (one to twelve bullets: a backticked pointer, an optional backticked symbol, ` — role`, and a `Trap:` prefix for misleading files; `ref:path` for branch-only files). Lookup prints it for the top three hits (all with `--blocks all`, also in `--json`), and the prompt hook adds a `where:` line under a hit, capped by `WAYMARK_HOOK_WHERE_CHARS` (default `160`, `0` turns it off).
+- Audit checks maps with `S18` (malformed, including a map placed before `<!-- history -->` on a status page), `W7` (pointer is not a regular file at `main_ref` or its own ref) and `W8` (line number, or the symbol's last segment is not a whole word in the file). Map pointers are ignored by the `G2` release tag scan and the `S13` heading scan.
+- Added `scripts/map.py` with `template` and `suggest`, which drafts bullets from the files changed most often in the last 200 commits or by a branch. It prints text and never edits a page.
+
 ## [0.1.6]
 
 - Added two vendorable project hooks under `scripts/repo_hooks/`, documented in the README with an exec-form `.claude/settings.json` example. `post_git.py` (`PostToolUse`, `Bash|PowerShell`) reminds Claude that a `git commit`, `git merge`, `git push`, `gh pr create`, or `gh pr merge` may have changed a topic's status. `stop_check.py` (`Stop`) blocks once when `status.py check` finds problems in wiki files with uncommitted changes in this checkout. Both read the wiki directory, `main_ref`, and `merged_label` from the project's configuration and print commands relative to the repository root.
