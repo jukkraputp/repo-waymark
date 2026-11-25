@@ -1,8 +1,8 @@
 # repo-waymark
 
-Keep repository status in Markdown and find it from Claude Code or the command line. A dated **Current status** block records decisions, code, merges, tests, publication, and next steps. Waymark generates the topic's index entry and updates its existing front-matter description from that block. The audit checks the wiki's structure and compares cited evidence with local Git data.
+Keep a repository wiki in Markdown that tells coding agents where to look and what state the work is in, and surface it in Claude Code or from the command line. A **Where to look** map on any topic page points at the entry points and traps in the code; the prompt hook shows the first few pointers with each matching topic. A dated **Current status** block records decisions, code, merges, tests, publication, and next steps, and Waymark generates the topic's index entry from it. The audit checks the wiki's structure, flags map pointers to files or symbols that no longer exist, and compares cited evidence with local Git data.
 
-In a benchmark on one private app, agents answering status questions covered by the wiki cost 33% less and found 78% of the required facts instead of 57%. Other questions showed no measurable effect. [Details](#benchmark)
+In benchmarks on one private app, agents with code maps reached the right file in 2.4 tool calls instead of 4.0, at 31% lower cost. Agents answering status questions covered by the wiki cost 33% less and found 78% of the required facts instead of 57%. [Details](#benchmark)
 
 ## Install
 
@@ -245,6 +245,30 @@ What we learned:
 - The tool's author wrote the questions and the answer key, knowing which pages existed.
 - An LLM grader isn't fully blind: answers from the wiki arm often mention the wiki.
 - The code rows depend on the repository's other agent instructions. A separate rule there, which sent agents to look for a missing diagrams folder, cost about one tool call per run in both arms.
+
+### Navigation with code maps (0.1.7)
+
+A second benchmark asked where to look instead of what state the work is in. It used the same app and model, and 8 questions that grep handles badly: 5 named a ticket or a product behaviour from a covered topic, and 3 had a plausible wrong file (two HTTP clients, three deep-link entry points, a launch check and an in-app check). Each ran 3 times in three clones of the same commit:
+
+- **No wiki.**
+- **Wiki:** the 9 status pages from the first benchmark.
+- **Wiki with maps:** the same pages, each ending with a map, plus 12 map-only pages for code areas, written by an agent that had not seen the questions, and version 0.1.7 vendored.
+
+| | No wiki | Wiki | Wiki with maps |
+|---|---|---|---|
+| Tool calls until a required file is first opened or searched | 4.0 | 4.0 | **2.4** |
+| Tool calls per run | 5.8 | 5.4 | **3.2** |
+| Mean cost per run | $0.075 | $0.073 | **$0.052** (−31%) |
+| Time per run | 20.8 s | 21.1 s | **14.4 s** |
+| Required facts found | 89% | 84% | **95%** |
+| Correct / partly correct / wrong | 13/11/0 | 12/12/0 | 15/9/0 |
+
+- Against each other arm, maps cost less on 7 of 8 questions. They reached a required file sooner on 7 of 8 against no wiki and on 8 of 8 against the status wiki.
+- Status pages alone did not help navigation.
+- No arm gave a wrong answer: every agent eventually found the right file, and maps mainly saved the search. Partly correct answers missed details the key required beyond the file, about equally in every arm.
+- The author added two areas to the map writer's brief after writing the questions (startup checks and the deep-link entry points). Without those two questions, maps still cost less and reached the file sooner on all 6 remaining questions: $0.044 against $0.071 per run, and 2.2 against 4.0 tool calls.
+
+The same caveats apply: one repository, one model, 3 runs per question, and questions written by the tool's author.
 
 The questions, transcripts and answer key stay private because they describe a private codebase.
 
