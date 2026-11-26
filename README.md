@@ -270,7 +270,18 @@ A second benchmark asked where to look instead of what state the work is in. It 
 
 The same caveats apply: one repository, one model, 3 runs per question, and questions written by the tool's author.
 
-**Checked again on 0.1.8.** Replaying the hook and lookup offline on all 26 questions of both benchmarks, 0.1.8 changes the hook output for 2 navigation questions only (a swapped third page, and a new order). Those 2 questions were re-run on the maps arm, 3 runs each, and graded blind the same way. Grades did not change (one question 3 of 3 correct, the other 3 of 3 partly correct); required facts went from 100% to 100% and from 86% to 79%, and the first required file was opened after 2.0 → 2.7 and 3.3 → 3.0 tool calls on average. That is within run-to-run variation, so the numbers above still stand for 0.1.8.
+**Checked again on 0.1.8.** Replaying the hook and lookup offline on all 26 questions of both benchmarks, 0.1.8 changes the hook output for 2 navigation questions only (a swapped third page, and a new order). Those 2 questions were re-run on the maps arm, 3 runs each, and graded blind the same way; the other arms are unchanged by 0.1.8, so their earlier runs serve for comparison.
+
+| Question | Arm | Graded c/p/w | Facts found | First required file (tool calls) | Tool calls | Cost per run |
+|---|---|---|---|---|---|---|
+| A | No wiki | 3/0/0 | 100% | 3.3 | 5.0 | $0.045 |
+| A | Maps, 0.1.7 | 3/0/0 | 100% | 2.0 | 2.3 | $0.038 |
+| A | Maps, 0.1.8 | 3/0/0 | 100% | 2.7 | 2.7 | $0.050 |
+| B | No wiki | 0/3/0 | 76% | 3.3 | 4.7 | $0.050 |
+| B | Maps, 0.1.7 | 0/3/0 | 86% | 3.3 | 4.3 | $0.107 |
+| B | Maps, 0.1.8 | 0/3/0 | 79% | 3.0 | 4.0 | $0.089 |
+
+Grades did not change between versions, and the 0.1.7 → 0.1.8 differences are within run-to-run variation, so the numbers above still stand for 0.1.8. Against no wiki, the maps arm reaches the right file a little sooner with fewer tool calls on both questions, but on question B it costs more per run and finds about the same facts; with 3 runs each these are hints, not results.
 
 The questions, transcripts and answer key stay private because they describe a private codebase.
 
