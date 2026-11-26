@@ -2,7 +2,7 @@
 
 Keep a repository wiki in Markdown that tells coding agents where to look and what state the work is in, and surface it in Claude Code or from the command line. A **Where to look** map on any topic page points at the entry points and traps in the code; the prompt hook shows the first few pointers with each matching topic. A dated **Current status** block records decisions, code, merges, tests, publication, and next steps, and Waymark generates the topic's index entry from it. The audit checks the wiki's structure, flags map pointers to files or symbols that no longer exist, and compares cited evidence with local Git data.
 
-In benchmarks on one private app, agents with code maps reached the right file in 2.4 tool calls instead of 4.0, at 31% lower cost. Agents answering status questions covered by the wiki cost 33% less and found 78% of the required facts instead of 57%. [Details](#benchmark)
+In benchmarks on one private app, agents with code maps reached the right file in 2.5 tool calls instead of 4.0, at 29% lower cost. Agents answering status questions covered by the wiki cost 33% less and found 78% of the required facts instead of 57%. [Details](#benchmark)
 
 ## Install
 
@@ -246,42 +246,28 @@ What we learned:
 - An LLM grader isn't fully blind: answers from the wiki arm often mention the wiki.
 - The code rows depend on the repository's other agent instructions. A separate rule there, which sent agents to look for a missing diagrams folder, cost about one tool call per run in both arms.
 
-### Navigation with code maps (0.1.7)
+### Navigation with code maps (0.1.8)
 
-A second benchmark asked where to look instead of what state the work is in. It used the same app and model, and 8 questions that grep handles badly: 5 named a ticket or a product behaviour from a covered topic, and 3 had a plausible wrong file (two HTTP clients, three deep-link entry points, a launch check and an in-app check). Each ran 3 times in three clones of the same commit:
+A second benchmark asked 8 "where to look" questions about the same private mobile app: 5 covered by a wiki map page and 3 not. None asked whether work was merged, released or tested. Each question ran 3 times with Claude Sonnet under the same command in three working copies: no wiki, wiki without maps, and wiki with maps using 0.1.8 scripts. The no-wiki and wiki runs are from the 0.1.7 benchmark; the maps runs are new. Claude (Opus) re-graded all 72 answers blind together against a written answer key; the earlier 0.1.7 table used a stricter gpt-6.2-sol grader. Nearly every answer is now correct in every arm, so correctness no longer separates them; the differences are in time to the right file, tool calls and cost.
 
 - **No wiki.**
 - **Wiki:** the 9 status pages from the first benchmark.
-- **Wiki with maps:** the same pages, each ending with a map, plus 12 map-only pages for code areas, written by an agent that had not seen the questions, and version 0.1.7 vendored.
+- **Wiki with maps:** the same pages, each ending with a map, plus 12 map-only pages for code areas, written by an agent that had not seen the questions, and version 0.1.8 vendored.
 
 | | No wiki | Wiki | Wiki with maps |
 |---|---|---|---|
-| Tool calls until a required file is first opened or searched | 4.0 | 4.0 | **2.4** |
-| Tool calls per run | 5.8 | 5.4 | **3.2** |
-| Mean cost per run | $0.075 | $0.073 | **$0.052** (−31%) |
-| Time per run | 20.8 s | 21.1 s | **14.4 s** |
-| Required facts found | 89% | 84% | **95%** |
-| Correct / partly correct / wrong | 13/11/0 | 12/12/0 | 15/9/0 |
+| Tool calls to the first required file (mean) | 4.0 | 4.0 | 2.5 |
+| Tool calls per run | 5.8 | 5.4 | 3.4 |
+| Cost per run (mean) | $0.075 | $0.073 | $0.053 |
+| Wall time per run | 20.8 s | 21.1 s | 13.2 s |
+| Facts found | 100.0% | 97.3% | 100.0% |
+| Correct / partly correct / wrong | 24/0/0 | 23/1/0 | 24/0/0 |
 
-- Against each other arm, maps cost less on 7 of 8 questions. They reached a required file sooner on 7 of 8 against no wiki and on 8 of 8 against the status wiki.
+- Maps reached a required file soonest on all 8 questions. They cost less than no wiki on 6 of 8; on one covered question and on the uncovered deep-link question they cost more.
 - Status pages alone did not help navigation.
-- No arm gave a wrong answer: every agent eventually found the right file, and maps mainly saved the search. Partly correct answers missed details the key required beyond the file, about equally in every arm.
-- The author added two areas to the map writer's brief after writing the questions (startup checks and the deep-link entry points). Without those two questions, maps still cost less and reached the file sooner on all 6 remaining questions: $0.044 against $0.071 per run, and 2.2 against 4.0 tool calls.
+- The author added two areas to the map writer's brief after writing the questions (startup checks and the deep-link entry points). Without those two questions, maps still reached the file sooner and cost less: 2.5 against 4.0 tool calls, and $0.049 against $0.071 per run.
 
-The same caveats apply: one repository, one model, 3 runs per question, and questions written by the tool's author.
-
-**Checked again on 0.1.8.** Replaying the hook and lookup offline on all 26 questions of both benchmarks, 0.1.8 changes the hook output for 2 navigation questions only (a swapped third page, and a new order). Those 2 questions were re-run on the maps arm, 3 runs each, and graded blind the same way; the other arms are unchanged by 0.1.8, so their earlier runs serve for comparison.
-
-| Question | Arm | Graded c/p/w | Facts found | First required file (tool calls) | Tool calls | Cost per run |
-|---|---|---|---|---|---|---|
-| A | No wiki | 3/0/0 | 100% | 3.3 | 5.0 | $0.045 |
-| A | Maps, 0.1.7 | 3/0/0 | 100% | 2.0 | 2.3 | $0.038 |
-| A | Maps, 0.1.8 | 3/0/0 | 100% | 2.7 | 2.7 | $0.050 |
-| B | No wiki | 0/3/0 | 76% | 3.3 | 4.7 | $0.050 |
-| B | Maps, 0.1.7 | 0/3/0 | 86% | 3.3 | 4.3 | $0.107 |
-| B | Maps, 0.1.8 | 0/3/0 | 79% | 3.0 | 4.0 | $0.089 |
-
-Grades did not change between versions, and the 0.1.7 → 0.1.8 differences are within run-to-run variation, so the numbers above still stand for 0.1.8. Against no wiki, the maps arm reaches the right file a little sooner with fewer tool calls on both questions, but on question B it costs more per run and finds about the same facts; with 3 runs each these are hints, not results.
+Caveats: one repository, one model, 3 runs per question, questions written by the tool's author, and a grader near ceiling.
 
 The questions, transcripts and answer key stay private because they describe a private codebase.
 
