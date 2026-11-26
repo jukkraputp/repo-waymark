@@ -270,6 +270,8 @@ A second benchmark asked where to look instead of what state the work is in. It 
 
 The same caveats apply: one repository, one model, 3 runs per question, and questions written by the tool's author.
 
+**Checked again on 0.1.8.** Replaying the hook and lookup offline on all 26 questions of both benchmarks, 0.1.8 changes the hook output for 2 navigation questions only (a swapped third page, and a new order). Those 2 questions were re-run on the maps arm, 3 runs each, and graded blind the same way. Grades did not change (one question 3 of 3 correct, the other 3 of 3 partly correct); required facts went from 100% to 100% and from 86% to 79%, and the first required file was opened after 2.0 → 2.7 and 3.3 → 3.0 tool calls on average. That is within run-to-run variation, so the numbers above still stand for 0.1.8.
+
 The questions, transcripts and answer key stay private because they describe a private codebase.
 
 ### Real-project trial (0.1.8)
