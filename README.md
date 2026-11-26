@@ -2,7 +2,7 @@
 
 Keep a repository wiki in Markdown that tells coding agents where to look and what state the work is in, and surface it in Claude Code or from the command line. A **Where to look** map on any topic page points at the entry points and traps in the code; the prompt hook shows the first few pointers with each matching topic. A dated **Current status** block records decisions, code, merges, tests, publication, and next steps, and Waymark generates the topic's index entry from it. The audit checks the wiki's structure, flags map pointers to files or symbols that no longer exist, and compares cited evidence with local Git data.
 
-In benchmarks on one private app, agents with code maps reached the right file in 2.4 tool calls instead of 4.0, at 31% lower cost. Agents answering status questions covered by the wiki cost 33% less and found 78% of the required facts instead of 57%. [Details](#benchmark)
+In a benchmark on one private app, agents with code maps reached the right file in 2.5 tool calls instead of 4.0, at 29% lower cost. [Details](#benchmark)
 
 ## Install
 
@@ -203,72 +203,32 @@ Root resolution uses `--root` first, then `WAYMARK_ROOT`. Without an override, d
 
 ## Benchmark
 
-We measured whether a Waymark wiki helps a coding agent answer questions about a real repository, and what it costs when it doesn't help. Measured November 2026 with version 0.1.6.
+We measured whether code maps help a coding agent find where to look in a real repository. Measured November 2026 with version 0.1.8.
 
-**Setup.** We used a private production Flutter app (about 1,300 Dart files and 6,600 commits) in two clones at the same commit. The only difference was the wiki:
+**Setup.** We used a private production Flutter app (about 1,300 Dart files and 6,600 commits) and asked 8 "where to look" questions that grep handles badly: 5 named a ticket or a product behaviour from a topic with a map, and 3 had a plausible wrong file (two HTTP clients, three deep-link entry points, a launch check and an in-app check). None asked whether work was merged, released or tested. Three clones of the same commit differed only in the wiki:
 
 - **No wiki:** the repository as it is.
-- **Wiki:** the same commit plus a vendored Waymark install. It added 9 topic pages and 2 category indexes, a short section in `CLAUDE.md`, and the project hooks.
+- **Wiki:** 9 status pages with Current status blocks, 2 category indexes, a short section in `CLAUDE.md`, and the project hooks.
+- **Wiki with maps:** the same pages, each ending with a map, plus 12 map-only pages for code areas, written by an agent that had not seen the questions, and version 0.1.8 vendored.
 
-Each question ran in a fresh headless Claude Code session (`claude -p`) on Claude Sonnet 5.5. Each session could read files and run shell commands. Writes, network access and paths outside the clone were blocked, and each session had a 25 tool-call budget. Questions were asked 3 times per arm, 108 runs per round. gpt-6.2-sol graded every answer against a private answer key, without being told which arm produced it. Answers are graded correct, partly correct or wrong, and scored on the share of required facts they state. Cost is the per-run cost Claude Code reports.
+Each question ran 3 times per arm in a fresh headless Claude Code session (`claude -p`) on Claude Sonnet 5.5, with the same command in every arm. Sessions could read files and run shell commands; writes, network access and paths outside the clone were blocked, with a 25 tool-call budget. The no-wiki and wiki runs were made with 0.1.7 (those arms do not change in 0.1.8); the maps runs are new. Claude (Opus) graded all 72 answers blind together against a written answer key, as correct, partly correct or wrong, and on the share of required facts stated. Cost is the per-run cost Claude Code reports.
 
-The 18 questions come in three kinds:
-
-- **Covered (10):** "is X merged, released, tested?" about work that has a wiki page. Three of the nine pages had known errors: one was stale and two omitted or misstated where a change was released.
-- **No page (4):** the same kind of status question about work the wiki does not cover.
-- **Code (4):** plain questions about the code, such as where the HTTP client adds the auth header or which SDK version is pinned.
-
-**Results:**
-
-| Questions | Mean cost per run, no wiki → wiki | Required facts found | Correct / partly correct / wrong |
-|---|---|---|---|
-| Covered (30 runs per arm) | $0.076 → $0.051 (**−33%**) | **57% → 78%** | 3/21/6 → 5/21/4 |
-| No page (12 runs per arm) | $0.045 → $0.046 (0%) | 54% → 54% | 0/12/0 → 0/12/0 |
-| Code (12 runs per arm) | $0.064 → $0.078 (+22%, noise; see below) | 95% → 90% | 9/2/1 → 7/5/0 |
-| All (54 runs per arm) | $0.067 → $0.056 (**−16%**) | 65% → 75% | 12/35/7 → 12/38/4 |
-
-A follow-up round ran only the code questions, with 20 runs per arm, after fixing an unrelated rule in the app's own agent instructions (see the last caveat). There, cost was $0.062 → $0.049 per run and required facts 95% → 100%.
-
-With the wiki, agents also used 11% fewer output tokens and 0.8 fewer tool calls, and finished 3.6 s sooner per run.
-
-What we learned:
-
-- **Covered questions:** the wiki pays off here. All ten covered questions cost less or the same, and one went from 0/3 to 3/3 correct.
-- **Other questions:** on status questions without a page, the wiki neither helped nor hurt.
-- **Code questions:** no measurable overhead. Across three rounds the wiki arm's code-question cost came out −13%, +22% and −21% against the no-wiki arm. The hook added at most about 350 characters to these prompts.
-- **Pages with errors:** on the three questions whose pages had errors, the wiki arm found more of the required facts on average (36% → 61%), and both arms had 4 of 9 answers graded wrong. One wiki-arm answer repeated a page's misleading release claim. Keep Current status blocks accurate, and treat them as evidence to check against Git.
-- **Restricted shell inflates the gap.** In a first round with a narrow shell allow-list, most agents couldn't run the Git checks that answer status questions. That round showed a −34% cost gap and a 23% → 76% facts gap on covered questions. Benchmark with the shell access your agents really have.
-
-**Caveats.**
-
-- One repository, one model, and 3 runs per question.
-- The tool's author wrote the questions and the answer key, knowing which pages existed.
-- An LLM grader isn't fully blind: answers from the wiki arm often mention the wiki.
-- The code rows depend on the repository's other agent instructions. A separate rule there, which sent agents to look for a missing diagrams folder, cost about one tool call per run in both arms.
-
-### Navigation with code maps (0.1.7)
-
-A second benchmark asked where to look instead of what state the work is in. It used the same app and model, and 8 questions that grep handles badly: 5 named a ticket or a product behaviour from a covered topic, and 3 had a plausible wrong file (two HTTP clients, three deep-link entry points, a launch check and an in-app check). Each ran 3 times in three clones of the same commit:
-
-- **No wiki.**
-- **Wiki:** the 9 status pages from the first benchmark.
-- **Wiki with maps:** the same pages, each ending with a map, plus 12 map-only pages for code areas, written by an agent that had not seen the questions, and version 0.1.7 vendored.
+**Results.** Nearly every answer was graded correct in every arm, so correctness does not separate them; the differences are time to the right file, tool calls and cost. An earlier 0.1.7 round graded by the stricter gpt-6.2-sol found the same pattern, with more answers marked partly correct in every arm.
 
 | | No wiki | Wiki | Wiki with maps |
 |---|---|---|---|
-| Tool calls until a required file is first opened or searched | 4.0 | 4.0 | **2.4** |
-| Tool calls per run | 5.8 | 5.4 | **3.2** |
-| Mean cost per run | $0.075 | $0.073 | **$0.052** (−31%) |
-| Time per run | 20.8 s | 21.1 s | **14.4 s** |
-| Required facts found | 89% | 84% | **95%** |
-| Correct / partly correct / wrong | 13/11/0 | 12/12/0 | 15/9/0 |
+| Tool calls to the first required file (mean) | 4.0 | 4.0 | 2.5 |
+| Tool calls per run | 5.8 | 5.4 | 3.4 |
+| Cost per run (mean) | $0.075 | $0.073 | $0.053 |
+| Wall time per run | 20.8 s | 21.1 s | 13.2 s |
+| Facts found | 100.0% | 97.3% | 100.0% |
+| Correct / partly correct / wrong | 24/0/0 | 23/1/0 | 24/0/0 |
 
-- Against each other arm, maps cost less on 7 of 8 questions. They reached a required file sooner on 7 of 8 against no wiki and on 8 of 8 against the status wiki.
+- Maps reached a required file soonest on all 8 questions. They cost less than no wiki on 6 of 8; on one covered question and on the uncovered deep-link question they cost more.
 - Status pages alone did not help navigation.
-- No arm gave a wrong answer: every agent eventually found the right file, and maps mainly saved the search. Partly correct answers missed details the key required beyond the file, about equally in every arm.
-- The author added two areas to the map writer's brief after writing the questions (startup checks and the deep-link entry points). Without those two questions, maps still cost less and reached the file sooner on all 6 remaining questions: $0.044 against $0.071 per run, and 2.2 against 4.0 tool calls.
+- The author added two areas to the map writer's brief after writing the questions (startup checks and the deep-link entry points). Without those two questions, maps still reached the file sooner and cost less: 2.5 against 4.0 tool calls, and $0.049 against $0.071 per run.
 
-The same caveats apply: one repository, one model, 3 runs per question, and questions written by the tool's author.
+Caveats: one repository, one model, 3 runs per question, questions written by the tool's author, and a grader near ceiling.
 
 The questions, transcripts and answer key stay private because they describe a private codebase.
 
